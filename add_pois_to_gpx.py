@@ -127,7 +127,7 @@ SEARCH_PROFILES = {
             "ES": ["zoológico", "parque zoológico", "granja escuela"],
             "EN": ["zoo", "petting zoo", "animal park"],
         },
-        "fuzzy": True,
+        "fuzzy": False,
         "symbol": "Zoo",
     },
     "Aquarium": {
@@ -227,7 +227,7 @@ PROFILE_DEFAULTS = {
     "Freibad, Erlebnisbad, Thermalbad": {"max_km": 10.0, "sample_km": 20.0, "batch_size": 4},
     "Badesee, Strand": {"max_km": 10.0, "sample_km": 20.0, "batch_size": 4},
     "Freizeitpark": {"max_km": 10.0, "sample_km": 30.0, "batch_size": 3},
-    "Zoo, Streichelzoo": {"max_km": 15.0, "sample_km": 20.0, "batch_size": 4},
+    "Zoo, Streichelzoo": {"max_km": 12.0, "sample_km": 25.0, "batch_size": 3},
     "Aquarium": {"max_km": 15.0, "sample_km": 20.0, "batch_size": 4},
     "McDonalds": {"max_km": 5.0, "sample_km": 20.0, "batch_size": 4},
     "Restaurant mit Kinderkarte": {"max_km": 8.0, "sample_km": 20.0, "batch_size": 4},
@@ -241,7 +241,7 @@ PROFILE_QUERY_BEHAVIOR = {
     "Freibad, Erlebnisbad, Thermalbad": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": True},
     "Badesee, Strand": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": True},
     "Freizeitpark": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": False},
-    "Zoo, Streichelzoo": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": False},
+    "Zoo, Streichelzoo": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": True},
     "Aquarium": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": False},
     "McDonalds": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": True},
     "Restaurant mit Kinderkarte": {"retries": 3, "endpoints": 3, "allow_empty_on_failure": True},
@@ -377,7 +377,7 @@ def profile_terms_for_country(profile_name, country_code):
     return dedup
 
 
-def build_query(points, max_km, profile_name, country_code):
+def build_query(points, max_km, profile_name, country_code, use_fuzzy):
     profile = SEARCH_PROFILES[profile_name]
     radius_m = int(max_km * 1000)
     lines = []
@@ -401,7 +401,7 @@ def build_query(points, max_km, profile_name, country_code):
     terms = profile_terms_for_country(profile_name, country_code)
     regex = "|".join(escape_overpass_regex(t) for t in terms)
 
-    if profile.get("fuzzy") and regex:
+    if use_fuzzy and profile.get("fuzzy") and regex:
         for lat, lon in points:
             selectors = [
                 f"node(around:{radius_m},{lat},{lon})",
@@ -624,6 +624,7 @@ def main():
     ap.add_argument("output_gpx", nargs="?", help="Output GPX with added POI waypoints")
     ap.add_argument("--profile", help="What to search for along the route")
 
+    ap.add_argument("--with-fuzzy", action="store_true", help="Enable fuzzy text fallback searches")
     ap.add_argument("--sample-km", type=float, default=None, help="Track sampling spacing in km")
     ap.add_argument("--max-km", type=float, default=None, help="Max distance from track in km")
     ap.add_argument("--country-sample-km", type=float, default=40.0, help="Reverse geocode spacing in km (default: 40)")
@@ -676,7 +677,7 @@ def main():
         print(f"\nQuerying country {cc} ({country_label}) with terms: {terms_preview or '(tags only)'}")
 
         for batch in chunked(pts, batch_size):
-            query = build_query(batch, max_km, profile_name, cc)
+            query = build_query(batch, max_km, profile_name, cc, args.with_fuzzy)
             data = query_overpass(
                 session,
                 query,
