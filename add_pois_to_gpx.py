@@ -78,13 +78,12 @@ SEARCH_PROFILES = {
             {"key": "leisure", "value": "swimming_pool"},
             {"key": "leisure", "value": "water_park"},
             {"key": "amenity", "value": "public_bath"},
-            {"key": "leisure", "value": "spa"},
         ],
         "terms": {
             "DE": ["Freibad", "Erlebnisbad", "Thermalbad", "Therme"],
             "FR": ["piscine", "parc aquatique", "thermes", "bains thermaux"],
             "ES": ["piscina", "parque acuático", "balneario", "termas"],
-            "EN": ["outdoor pool", "water park", "thermal bath", "spa"],
+            "EN": ["outdoor pool", "water park", "thermal bath"],
         },
         "fuzzy": True,
         "symbol": "Swimming Area",
@@ -175,12 +174,6 @@ SEARCH_PROFILES = {
     },
     "Kinder Erlebnis aller Art": {
         "tags": [
-            {"key": "leisure", "value": "playground"},
-            {"key": "tourism", "value": "theme_park"},
-            {"key": "tourism", "value": "attraction"},
-            {"key": "tourism", "value": "zoo"},
-            {"key": "tourism", "value": "aquarium"},
-            {"key": "leisure", "value": "water_park"},
         ],
         "terms": {
             "DE": ["Kindererlebnis", "Erlebniswelt", "Familienpark", "Indoor Spielplatz"],
@@ -233,7 +226,7 @@ PROFILE_DEFAULTS = {
     "Spielplatz": {"max_km": 3.0, "sample_km": 25.0, "batch_size": 4},
     "Freibad, Erlebnisbad, Thermalbad": {"max_km": 10.0, "sample_km": 20.0, "batch_size": 4},
     "Badesee, Strand": {"max_km": 10.0, "sample_km": 20.0, "batch_size": 4},
-    "Freizeitpark": {"max_km": 20.0, "sample_km": 30.0, "batch_size": 3},
+    "Freizeitpark": {"max_km": 10.0, "sample_km": 30.0, "batch_size": 3},
     "Zoo, Streichelzoo": {"max_km": 15.0, "sample_km": 20.0, "batch_size": 4},
     "Aquarium": {"max_km": 15.0, "sample_km": 20.0, "batch_size": 4},
     "McDonalds": {"max_km": 5.0, "sample_km": 20.0, "batch_size": 4},
