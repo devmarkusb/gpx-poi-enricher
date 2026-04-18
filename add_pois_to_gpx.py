@@ -225,7 +225,7 @@ PROFILE_DEFAULTS = {
     "Campingplatz": {"max_km": 10.0, "sample_km": 12.0, "batch_size": 6},
     "Spielplatz": {"max_km": 3.0, "sample_km": 25.0, "batch_size": 4},
     "Freibad, Erlebnisbad, Thermalbad": {"max_km": 10.0, "sample_km": 20.0, "batch_size": 4},
-    "Badesee, Strand": {"max_km": 10.0, "sample_km": 20.0, "batch_size": 4},
+    "Badesee, Strand": {"max_km": 25.0, "sample_km": 20.0, "batch_size": 4},
     "Freizeitpark": {"max_km": 10.0, "sample_km": 30.0, "batch_size": 3},
     "Zoo, Streichelzoo": {"max_km": 12.0, "sample_km": 25.0, "batch_size": 3},
     "Aquarium": {"max_km": 15.0, "sample_km": 20.0, "batch_size": 4},
