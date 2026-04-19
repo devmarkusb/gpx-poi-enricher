@@ -147,7 +147,6 @@ SEARCH_PROFILES = {
     },
     "McDonalds": {
         "tags": [
-            {"key": "amenity", "value": "fast_food"},
             {"key": "brand", "value": "McDonald's"},
             {"key": "name", "value": "McDonald's"},
             {"key": "brand:wikidata", "value": "Q38076"},
@@ -224,33 +223,33 @@ ALIASES = {
 }
 
 PROFILE_DEFAULTS = {
-    "Campingplatz": {"max_km": 10.0, "sample_km": 12.0, "batch_size": 6},
-    "Spielplatz": {"max_km": 3.0, "sample_km": 25.0, "batch_size": 4},
-    "Freibad, Erlebnisbad, Thermalbad": {"max_km": 10.0, "sample_km": 20.0, "batch_size": 4},
-    "Badesee, Strand": {"max_km": 25.0, "sample_km": 20.0, "batch_size": 4},
-    "Freizeitpark": {"max_km": 10.0, "sample_km": 30.0, "batch_size": 3},
-    "Zoo, Streichelzoo": {"max_km": 12.0, "sample_km": 25.0, "batch_size": 3},
-    "Aquarium": {"max_km": 15.0, "sample_km": 20.0, "batch_size": 4},
-    "McDonalds": {"max_km": 5.0, "sample_km": 20.0, "batch_size": 4},
-    "Restaurant mit Kinderkarte": {"max_km": 8.0, "sample_km": 20.0, "batch_size": 4},
-    "Kinder Erlebnis aller Art": {"max_km": 15.0, "sample_km": 20.0, "batch_size": 4},
-    "allgemein spektakuläre kindertaugliche Sehenswürdigkeit": {"max_km": 20.0, "sample_km": 30.0, "batch_size": 3},
+    "Campingplatz": {"max_km": 10.0, "sample_km": 5.0, "batch_size": 6},
+    "Spielplatz": {"max_km": 3.0, "sample_km": 3.0, "batch_size": 4},
+    "Freibad, Erlebnisbad, Thermalbad": {"max_km": 10.0, "sample_km": 5.0, "batch_size": 4},
+    "Badesee, Strand": {"max_km": 25.0, "sample_km": 12.0, "batch_size": 4},
+    "Freizeitpark": {"max_km": 10.0, "sample_km": 5.0, "batch_size": 3},
+    "Zoo, Streichelzoo": {"max_km": 12.0, "sample_km": 6.0, "batch_size": 3},
+    "Aquarium": {"max_km": 15.0, "sample_km": 7.0, "batch_size": 4},
+    "McDonalds": {"max_km": 5.0, "sample_km": 2.5, "batch_size": 4},
+    "Restaurant mit Kinderkarte": {"max_km": 5.0, "sample_km": 2.5, "batch_size": 4},
+    "Kinder Erlebnis aller Art": {"max_km": 15.0, "sample_km": 7.0, "batch_size": 4},
+    "allgemein spektakuläre kindertaugliche Sehenswürdigkeit": {"max_km": 20.0, "sample_km": 10.0, "batch_size": 3},
 }
 
 DEFAULT_QUERY_BEHAVIOR = {"retries": 2, "endpoints": 2, "allow_empty_on_failure": True}
 
 PROFILE_QUERY_BEHAVIOR = {
     "Campingplatz": {"retries": 3, "endpoints": 3, "allow_empty_on_failure": False},
-    "Spielplatz": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": True},
-    "Freibad, Erlebnisbad, Thermalbad": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": True},
-    "Badesee, Strand": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": True},
+    "Spielplatz": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": False},
+    "Freibad, Erlebnisbad, Thermalbad": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": False},
+    "Badesee, Strand": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": False},
     "Freizeitpark": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": False},
-    "Zoo, Streichelzoo": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": True},
+    "Zoo, Streichelzoo": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": False},
     "Aquarium": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": False},
-    "McDonalds": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": True},
-    "Restaurant mit Kinderkarte": {"retries": 3, "endpoints": 3, "allow_empty_on_failure": True},
-    "Kinder Erlebnis aller Art": {"retries": 3, "endpoints": 3, "allow_empty_on_failure": True},
-    "allgemein spektakuläre kindertaugliche Sehenswürdigkeit": {"retries": 3, "endpoints": 3, "allow_empty_on_failure": True},
+    "McDonalds": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": False},
+    "Restaurant mit Kinderkarte": {"retries": 3, "endpoints": 3, "allow_empty_on_failure": False},
+    "Kinder Erlebnis aller Art": {"retries": 3, "endpoints": 3, "allow_empty_on_failure": False},
+    "allgemein spektakuläre kindertaugliche Sehenswürdigkeit": {"retries": 3, "endpoints": 3, "allow_empty_on_failure": False},
 }
 
 def haversine_km(lat1, lon1, lat2, lon2):
