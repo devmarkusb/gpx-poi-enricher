@@ -3,9 +3,9 @@
 Add configurable POI waypoints near a GPX track.
 
 Examples:
-  python add_pois_to_gpx.py split.gpx camping.gpx --profile "Campingplatz"
-  python add_pois_to_gpx.py split.gpx spielplaetze.gpx --profile "Spielplatz"
-  python add_pois_to_gpx.py split.gpx zoos.gpx --profile "Zoo, Streichelzoo" --max-km 15
+  python add-pois-to-gpx.py split.gpx camping.gpx --profile "Campingplatz"
+  python add-pois-to-gpx.py split.gpx spielplaetze.gpx --profile "Spielplatz"
+  python add-pois-to-gpx.py split.gpx zoos.gpx --profile "Zoo, Streichelzoo" --max-km 15
 
 Notes:
 - The route is sampled, then representative route points are reverse-geocoded to detect country
@@ -16,7 +16,9 @@ Notes:
 """
 
 import argparse
+import json
 import math
+import re
 import sys
 import time
 import xml.etree.ElementTree as ET
@@ -235,6 +237,8 @@ PROFILE_DEFAULTS = {
     "allgemein spektakuläre kindertaugliche Sehenswürdigkeit": {"max_km": 20.0, "sample_km": 30.0, "batch_size": 3},
 }
 
+DEFAULT_QUERY_BEHAVIOR = {"retries": 2, "endpoints": 2, "allow_empty_on_failure": True}
+
 PROFILE_QUERY_BEHAVIOR = {
     "Campingplatz": {"retries": 3, "endpoints": 3, "allow_empty_on_failure": False},
     "Spielplatz": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": True},
@@ -340,17 +344,6 @@ def chunked(seq, size):
         yield seq[i:i + size]
 
 
-def escape_overpass_regex(s):
-    special = r'\\.^$|?*+()[]{}'
-    out = []
-    for ch in s:
-        if ch in special:
-            out.append("\\" + ch)
-        else:
-            out.append(ch)
-    return "".join(out)
-
-
 def canonical_profile_name(name):
     if name in SEARCH_PROFILES:
         return name
@@ -399,9 +392,11 @@ def build_query(points, max_km, profile_name, country_code, use_fuzzy):
                     lines.append(f'{sel}["{key}"="{value}"];')
 
     terms = profile_terms_for_country(profile_name, country_code)
-    regex = "|".join(escape_overpass_regex(t) for t in terms)
+    regex = "|".join(re.escape(t) for t in terms)
+    # Profiles with no tag filters (e.g. "Kinder Erlebnis aller Art") need text search or the union is empty.
+    must_fuzzy = not lines and bool(regex) and profile.get("fuzzy", False)
 
-    if use_fuzzy and profile.get("fuzzy") and regex:
+    if (use_fuzzy or must_fuzzy) and profile.get("fuzzy") and regex:
         for lat, lon in points:
             selectors = [
                 f"node(around:{radius_m},{lat},{lon})",
@@ -413,11 +408,18 @@ def build_query(points, max_km, profile_name, country_code, use_fuzzy):
                 lines.append(f'{sel}["description"~"{regex}", i];')
                 lines.append(f'{sel}["operator"~"{regex}", i];')
 
+    if not lines:
+        raise ValueError(
+            f"No Overpass query could be built for profile {profile_name!r} "
+            f"(no tag filters and no usable search terms for this country). "
+            f"Try --with-fuzzy if the profile supports it."
+        )
+
     return "[out:json][timeout:180];\n(\n" + "\n".join(lines) + "\n);\nout center tags;\n"
 
 
 def query_overpass(session, query, profile_name, verbose=False):
-    behavior = PROFILE_QUERY_BEHAVIOR[profile_name]
+    behavior = {**DEFAULT_QUERY_BEHAVIOR, **PROFILE_QUERY_BEHAVIOR.get(profile_name, {})}
     max_retries = behavior["retries"]
     endpoint_count = behavior["endpoints"]
     allow_empty_on_failure = behavior.get("allow_empty_on_failure", False)
@@ -432,7 +434,21 @@ def query_overpass(session, query, profile_name, verbose=False):
                 r = session.post(base_url, data={"data": query}, headers=headers, timeout=240)
                 content_type = r.headers.get("content-type", "")
                 if r.ok and "json" in content_type.lower():
-                    return r.json()
+                    try:
+                        return r.json()
+                    except json.JSONDecodeError as e:
+                        last_error = e
+                        body = r.text[:4000]
+                        print(
+                            f"Invalid JSON from Overpass at {base_url} "
+                            f"(attempt {attempt + 1}/{max_retries}): {e}",
+                            file=sys.stderr,
+                        )
+                        if verbose:
+                            print(body[:1000], file=sys.stderr)
+                        wait_s = min(60, 5 * (2 ** attempt))
+                        time.sleep(wait_s)
+                        continue
 
                 body = r.text[:4000]
                 busy = (
@@ -460,6 +476,11 @@ def query_overpass(session, query, profile_name, verbose=False):
                 if verbose:
                     print(body, file=sys.stderr)
                 r.raise_for_status()
+                last_error = RuntimeError(
+                    f"Unexpected response from {base_url} (status {r.status_code}, not JSON)"
+                )
+                wait_s = min(60, 5 * (2 ** attempt))
+                time.sleep(wait_s)
 
             except requests.RequestException as e:
                 last_error = e
@@ -609,7 +630,8 @@ def print_available_profiles():
 
 
 def resolve_profile_params(profile_name, args):
-    defaults = PROFILE_DEFAULTS[profile_name]
+    fallback = {"max_km": 10.0, "sample_km": 20.0, "batch_size": 4}
+    defaults = {**fallback, **PROFILE_DEFAULTS.get(profile_name, {})}
 
     max_km = args.max_km if args.max_km is not None else defaults["max_km"]
     sample_km = args.sample_km if args.sample_km is not None else defaults["sample_km"]
