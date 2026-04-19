@@ -236,20 +236,20 @@ PROFILE_DEFAULTS = {
     "allgemein spektakuläre kindertaugliche Sehenswürdigkeit": {"max_km": 20.0, "sample_km": 10.0, "batch_size": 3},
 }
 
-DEFAULT_QUERY_BEHAVIOR = {"retries": 2, "endpoints": 2, "allow_empty_on_failure": True}
+DEFAULT_QUERY_BEHAVIOR = {"retries": 2, "endpoints": 2}
 
 PROFILE_QUERY_BEHAVIOR = {
-    "Campingplatz": {"retries": 3, "endpoints": 3, "allow_empty_on_failure": False},
-    "Spielplatz": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": False},
-    "Freibad, Erlebnisbad, Thermalbad": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": False},
-    "Badesee, Strand": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": False},
-    "Freizeitpark": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": False},
-    "Zoo, Streichelzoo": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": False},
-    "Aquarium": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": False},
-    "McDonalds": {"retries": 2, "endpoints": 2, "allow_empty_on_failure": False},
-    "Restaurant mit Kinderkarte": {"retries": 3, "endpoints": 3, "allow_empty_on_failure": False},
-    "Kinder Erlebnis aller Art": {"retries": 3, "endpoints": 3, "allow_empty_on_failure": False},
-    "allgemein spektakuläre kindertaugliche Sehenswürdigkeit": {"retries": 3, "endpoints": 3, "allow_empty_on_failure": False},
+    "Campingplatz": {"retries": 3, "endpoints": 3},
+    "Spielplatz": {"retries": 2, "endpoints": 2},
+    "Freibad, Erlebnisbad, Thermalbad": {"retries": 2, "endpoints": 2},
+    "Badesee, Strand": {"retries": 2, "endpoints": 2},
+    "Freizeitpark": {"retries": 2, "endpoints": 2},
+    "Zoo, Streichelzoo": {"retries": 2, "endpoints": 2},
+    "Aquarium": {"retries": 2, "endpoints": 2},
+    "McDonalds": {"retries": 2, "endpoints": 2},
+    "Restaurant mit Kinderkarte": {"retries": 3, "endpoints": 3},
+    "Kinder Erlebnis aller Art": {"retries": 3, "endpoints": 3},
+    "allgemein spektakuläre kindertaugliche Sehenswürdigkeit": {"retries": 3, "endpoints": 3},
 }
 
 def haversine_km(lat1, lon1, lat2, lon2):
@@ -421,7 +421,6 @@ def query_overpass(session, query, profile_name, verbose=False):
     behavior = {**DEFAULT_QUERY_BEHAVIOR, **PROFILE_QUERY_BEHAVIOR.get(profile_name, {})}
     max_retries = behavior["retries"]
     endpoint_count = behavior["endpoints"]
-    allow_empty_on_failure = behavior.get("allow_empty_on_failure", False)
 
     headers = {"User-Agent": USER_AGENT}
     last_error = None
@@ -490,10 +489,6 @@ def query_overpass(session, query, profile_name, verbose=False):
                     file=sys.stderr,
                 )
                 time.sleep(wait_s)
-
-    if allow_empty_on_failure:
-        print("Warning: all Overpass attempts failed for this batch; skipping batch.", file=sys.stderr)
-        return {"elements": []}
 
     if last_error:
         raise last_error
