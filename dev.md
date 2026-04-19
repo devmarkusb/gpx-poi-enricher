@@ -16,5 +16,7 @@ appear to be just dead images. What you might want is to save them
 under 'your places' or any such list. The only way seems to be saving
 them manually point for point again.
 
-Repeat from 3. for
+Repeat from 3. with/for
 - `$ python add_pois_to_gpx.py split.gpx spielplatz.gpx --profile "spielplatz"`
+- Note: add-campsites-to-gpx.py was the first version of the upper script, but
+for campsites only
