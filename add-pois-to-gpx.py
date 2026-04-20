@@ -228,20 +228,13 @@ PROFILE_DEFAULTS = {
     "sehenswürdigkeit": {"max_km": 20.0, "sample_km": 10.0, "batch_size": 3},
 }
 
-DEFAULT_QUERY_BEHAVIOR = {"retries": 2, "endpoints": 2}
+DEFAULT_QUERY_BEHAVIOR = {"retries": 2}
 
 PROFILE_QUERY_BEHAVIOR = {
-    "camping": {"retries": 3, "endpoints": 3},
-    "spielplatz": {"retries": 2, "endpoints": 2},
-    "freibad": {"retries": 2, "endpoints": 2},
-    "strand": {"retries": 2, "endpoints": 2},
-    "freizeitpark": {"retries": 2, "endpoints": 2},
-    "zoo": {"retries": 2, "endpoints": 2},
-    "aquarium": {"retries": 2, "endpoints": 2},
-    "mcdonalds": {"retries": 2, "endpoints": 2},
-    "restaurant": {"retries": 3, "endpoints": 3},
-    "kindererlebnis": {"retries": 3, "endpoints": 3},
-    "sehenswürdigkeit": {"retries": 3, "endpoints": 3},
+    "camping": {"retries": 3},
+    "restaurant": {"retries": 3},
+    "kindererlebnis": {"retries": 3},
+    "sehenswürdigkeit": {"retries": 3},
 }
 
 def haversine_km(lat1, lon1, lat2, lon2):
@@ -410,11 +403,10 @@ def build_query(points, max_km, profile_id, country_code, use_fuzzy):
 def query_overpass(session, query, profile_id, verbose=False):
     behavior = {**DEFAULT_QUERY_BEHAVIOR, **PROFILE_QUERY_BEHAVIOR.get(profile_id, {})}
     max_retries = behavior["retries"]
-    endpoint_count = behavior["endpoints"]
 
     headers = {"User-Agent": USER_AGENT}
     last_error = None
-    urls = OVERPASS_URLS[:endpoint_count]
+    urls = OVERPASS_URLS
 
     for base_url in urls:
         for attempt in range(max_retries):
