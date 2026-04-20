@@ -1,0 +1,14 @@
+id: kids_activities
+description: "Kinder Erlebnis aller Art"
+symbol: Scenic Area
+defaults:
+  max_km: 15.0
+  sample_km: 7.0
+  batch_size: 4
+  retries: 3
+tags: []
+terms:
+  DE: ["Kindererlebnis", "Erlebniswelt", "Familienpark", "Indoor Spielplatz"]
+  FR: ["parc de loisirs", "activité enfant", "parc familial", "aire de jeux couverte"]
+  ES: ["parque de ocio", "actividad infantil", "parque familiar", "parque infantil cubierto"]
+  EN: ["kids attraction", "family attraction", "indoor playground", "children activity"]

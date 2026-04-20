@@ -1,0 +1,22 @@
+id: attractions
+description: "allgemein spektakuläre kindertaugliche Sehenswürdigkeit"
+symbol: Scenic Area
+defaults:
+  max_km: 20.0
+  sample_km: 10.0
+  batch_size: 3
+  retries: 3
+tags:
+  - key: tourism
+    value: attraction
+  - key: tourism
+    value: viewpoint
+  - key: tourism
+    value: museum
+  - key: historic
+    value: "*"
+terms:
+  DE: ["Sehenswürdigkeit", "familienfreundlich", "Aussichtspunkt", "Erlebnis"]
+  FR: ["site touristique", "familial", "point de vue", "incontournable"]
+  ES: ["atracción turística", "familiar", "mirador", "imprescindible"]
+  EN: ["family attraction", "scenic viewpoint", "must see", "kid friendly attraction"]

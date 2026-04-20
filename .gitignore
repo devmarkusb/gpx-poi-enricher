@@ -1,2 +1,39 @@
+# IDEs
 .idea/
+.vscode/
+*.iml
+
+# Python
 .venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Test / coverage artefacts
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Generated output files (GPX/KML) — too large for version control.
+# Commit your input routes but not the auto-generated POI exports.
+*.kml
+# Uncomment the line below to also ignore GPX output files:
+# *.gpx
+
+# IDE session state
+*.joz
+session.*
+
+# OS
+.DS_Store
+Thumbs.db

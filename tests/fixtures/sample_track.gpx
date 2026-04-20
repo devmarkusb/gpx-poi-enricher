@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="test">
+  <trk>
+    <name>Test Route</name>
+    <trkseg>
+      <trkpt lat="48.1351" lon="11.5820"></trkpt>
+      <trkpt lat="47.3769" lon="8.5417"></trkpt>
+      <trkpt lat="45.7640" lon="4.8357"></trkpt>
+      <trkpt lat="43.2965" lon="5.3811"></trkpt>
+      <trkpt lat="41.3851" lon="2.1734"></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

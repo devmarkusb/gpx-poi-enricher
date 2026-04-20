@@ -4,7 +4,7 @@ Add configurable POI waypoints near a GPX track.
 
 Examples:
   python add-pois-to-gpx.py split.gpx camping.gpx --profile camping
-  python add-pois-to-gpx.py split.gpx spielplaetze.gpx --profile spielplatz
+  python add-pois-to-gpx.py split.gpx playgrounds.gpx --profile playground
   python add-pois-to-gpx.py split.gpx zoos.gpx --profile zoo --max-km 15
 
 Notes:
@@ -58,14 +58,14 @@ SEARCH_PROFILES = {
         },
         "symbol": "Campground",
     },
-    "spielplatz": {
+    "playground": {
         "description": "Spielplatz",
         "tags": [
             {"key": "leisure", "value": "playground"},
         ],
         "symbol": "Playground",
     },
-    "freibad": {
+    "outdoor_pool": {
         "description": "Freibad, Erlebnisbad, Thermalbad",
         "tags": [
             {"key": "leisure", "value": "swimming_pool"},
@@ -80,7 +80,7 @@ SEARCH_PROFILES = {
         },
         "symbol": "Swimming Area",
     },
-    "strand": {
+    "beach": {
         "description": "Badesee, Strand",
         "tags": [
             {"key": "natural", "value": "beach"},
@@ -94,7 +94,7 @@ SEARCH_PROFILES = {
         },
         "symbol": "Beach",
     },
-    "freizeitpark": {
+    "theme_park": {
         "description": "Freizeitpark",
         "tags": [
             {"key": "tourism", "value": "theme_park"},
@@ -144,7 +144,7 @@ SEARCH_PROFILES = {
         },
         "symbol": "Restaurant",
     },
-    "kindererlebnis": {
+    "kids_activities": {
         "description": "Kinder Erlebnis aller Art",
         "tags": [
         ],
@@ -156,7 +156,7 @@ SEARCH_PROFILES = {
         },
         "symbol": "Scenic Area",
     },
-    "sehenswürdigkeit": {
+    "attractions": {
         "description": "allgemein spektakuläre kindertaugliche Sehenswürdigkeit",
         "tags": [
             {"key": "tourism", "value": "attraction"},
@@ -176,16 +176,16 @@ SEARCH_PROFILES = {
 
 PROFILE_DEFAULTS = {
     "camping": {"max_km": 10.0, "sample_km": 5.0, "batch_size": 6},
-    "spielplatz": {"max_km": 3.0, "sample_km": 3.0, "batch_size": 4},
-    "freibad": {"max_km": 10.0, "sample_km": 5.0, "batch_size": 4},
-    "strand": {"max_km": 25.0, "sample_km": 12.0, "batch_size": 4},
-    "freizeitpark": {"max_km": 10.0, "sample_km": 5.0, "batch_size": 3},
+    "playground": {"max_km": 3.0, "sample_km": 3.0, "batch_size": 4},
+    "outdoor_pool": {"max_km": 10.0, "sample_km": 5.0, "batch_size": 4},
+    "beach": {"max_km": 25.0, "sample_km": 12.0, "batch_size": 4},
+    "theme_park": {"max_km": 10.0, "sample_km": 5.0, "batch_size": 3},
     "zoo": {"max_km": 12.0, "sample_km": 6.0, "batch_size": 3},
     "aquarium": {"max_km": 15.0, "sample_km": 7.0, "batch_size": 4},
     "mcdonalds": {"max_km": 5.0, "sample_km": 10.0, "batch_size": 10},
     "restaurant": {"max_km": 5.0, "sample_km": 10.0, "batch_size": 8},
-    "kindererlebnis": {"max_km": 15.0, "sample_km": 7.0, "batch_size": 4},
-    "sehenswürdigkeit": {"max_km": 20.0, "sample_km": 10.0, "batch_size": 3},
+    "kids_activities": {"max_km": 15.0, "sample_km": 7.0, "batch_size": 4},
+    "attractions": {"max_km": 20.0, "sample_km": 10.0, "batch_size": 3},
 }
 
 DEFAULT_QUERY_BEHAVIOR = {"retries": 2}
@@ -193,8 +193,8 @@ DEFAULT_QUERY_BEHAVIOR = {"retries": 2}
 PROFILE_QUERY_BEHAVIOR = {
     "camping": {"retries": 3},
     "restaurant": {"retries": 3},
-    "kindererlebnis": {"retries": 3},
-    "sehenswürdigkeit": {"retries": 3},
+    "kids_activities": {"retries": 3},
+    "attractions": {"retries": 3},
 }
 
 
@@ -673,7 +673,7 @@ def main():
     ap.add_argument("output_gpx", nargs="?", help="Output GPX with added POI waypoints")
     ap.add_argument(
         "--profile",
-        help="Profile id (see --list-profiles), e.g. camping or spielplatz; case-insensitive",
+        help="Profile id (see --list-profiles), e.g. camping or playground; case-insensitive",
     )
 
     ap.add_argument("--sample-km", type=float, default=None, help="Track sampling spacing in km")

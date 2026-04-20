@@ -1,0 +1,14 @@
+id: zoo
+description: "Zoo, Streichelzoo"
+symbol: Zoo
+defaults:
+  max_km: 12.0
+  sample_km: 6.0
+  batch_size: 3
+  retries: 2
+tags:
+  - key: tourism
+    value: zoo
+  - key: animal
+    value: petting_zoo
+terms: {}

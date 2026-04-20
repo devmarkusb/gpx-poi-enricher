@@ -1,0 +1,18 @@
+id: beach
+description: "Badesee, Strand"
+symbol: Beach
+defaults:
+  max_km: 25.0
+  sample_km: 12.0
+  batch_size: 4
+  retries: 2
+tags:
+  - key: natural
+    value: beach
+  - key: leisure
+    value: bathing_place
+terms:
+  DE: ["Badesee", "Badestrand", "Strand", "Badestelle"]
+  FR: ["plage", "lac de baignade", "baignade"]
+  ES: ["playa", "zona de baño", "lago para bañarse"]
+  EN: ["beach", "swimming lake", "bathing place"]
