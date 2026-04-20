@@ -205,16 +205,11 @@ SEARCH_PROFILES = {
 
 ALIASES = {
     "camping": "Campingplatz",
-    "campingplatz": "Campingplatz",
     "spielplatz": "Spielplatz",
     "freibad": "Freibad, Erlebnisbad, Thermalbad",
-    "erlebnisbad": "Freibad, Erlebnisbad, Thermalbad",
-    "thermalbad": "Freibad, Erlebnisbad, Thermalbad",
-    "badesee": "Badesee, Strand",
     "strand": "Badesee, Strand",
     "freizeitpark": "Freizeitpark",
     "zoo": "Zoo, Streichelzoo",
-    "streichelzoo": "Zoo, Streichelzoo",
     "aquarium": "Aquarium",
     "mcdonalds": "McDonalds",
     "restaurant": "Restaurant mit Kinderkarte",
