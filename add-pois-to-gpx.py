@@ -3,9 +3,9 @@
 Add configurable POI waypoints near a GPX track.
 
 Examples:
-  python add-pois-to-gpx.py split.gpx camping.gpx --profile "Campingplatz"
-  python add-pois-to-gpx.py split.gpx spielplaetze.gpx --profile "Spielplatz"
-  python add-pois-to-gpx.py split.gpx zoos.gpx --profile "Zoo, Streichelzoo" --max-km 15
+  python add-pois-to-gpx.py split.gpx camping.gpx --profile camping
+  python add-pois-to-gpx.py split.gpx spielplaetze.gpx --profile spielplatz
+  python add-pois-to-gpx.py split.gpx zoos.gpx --profile zoo --max-km 15
 
 Notes:
 - The route is sampled, then representative route points are reverse-geocoded to detect country
@@ -48,7 +48,8 @@ COUNTRY_LABELS = {
 }
 
 SEARCH_PROFILES = {
-    "Campingplatz": {
+    "camping": {
+        "description": "Campingplatz",
         "tags": [
             {"key": "tourism", "value": "camp_site"},
             {"key": "tourism", "value": "caravan_site"},
@@ -62,7 +63,8 @@ SEARCH_PROFILES = {
         "fuzzy": True,
         "symbol": "Campground",
     },
-    "Spielplatz": {
+    "spielplatz": {
+        "description": "Spielplatz",
         "tags": [
             {"key": "leisure", "value": "playground"},
         ],
@@ -75,7 +77,8 @@ SEARCH_PROFILES = {
         "fuzzy": False,
         "symbol": "Playground",
     },
-    "Freibad, Erlebnisbad, Thermalbad": {
+    "freibad": {
+        "description": "Freibad, Erlebnisbad, Thermalbad",
         "tags": [
             {"key": "leisure", "value": "swimming_pool"},
             {"key": "leisure", "value": "water_park"},
@@ -90,7 +93,8 @@ SEARCH_PROFILES = {
         "fuzzy": True,
         "symbol": "Swimming Area",
     },
-    "Badesee, Strand": {
+    "strand": {
+        "description": "Badesee, Strand",
         "tags": [
             {"key": "natural", "value": "beach"},
             {"key": "leisure", "value": "bathing_place"},
@@ -104,7 +108,8 @@ SEARCH_PROFILES = {
         "fuzzy": True,
         "symbol": "Beach",
     },
-    "Freizeitpark": {
+    "freizeitpark": {
+        "description": "Freizeitpark",
         "tags": [
             {"key": "tourism", "value": "theme_park"},
             {"key": "tourism", "value": "attraction"},
@@ -118,7 +123,8 @@ SEARCH_PROFILES = {
         "fuzzy": True,
         "symbol": "Amusement Park",
     },
-    "Zoo, Streichelzoo": {
+    "zoo": {
+        "description": "Zoo, Streichelzoo",
         "tags": [
             {"key": "tourism", "value": "zoo"},
             {"key": "animal", "value": "petting_zoo"},
@@ -132,7 +138,8 @@ SEARCH_PROFILES = {
         "fuzzy": False,
         "symbol": "Zoo",
     },
-    "Aquarium": {
+    "aquarium": {
+        "description": "Aquarium",
         "tags": [
             {"key": "tourism", "value": "aquarium"},
         ],
@@ -145,7 +152,8 @@ SEARCH_PROFILES = {
         "fuzzy": False,
         "symbol": "Aquarium",
     },
-    "McDonalds": {
+    "mcdonalds": {
+        "description": "McDonalds",
         "tags": [
             {"key": "brand", "value": "McDonald's"},
             {"key": "name", "value": "McDonald's"},
@@ -160,7 +168,8 @@ SEARCH_PROFILES = {
         "fuzzy": True,
         "symbol": "Fast Food",
     },
-    "Restaurant mit Kinderkarte": {
+    "restaurant": {
+        "description": "Restaurant mit Kinderkarte",
         "tags": [
             {"key": "amenity", "value": "restaurant"},
         ],
@@ -173,7 +182,8 @@ SEARCH_PROFILES = {
         "fuzzy": True,
         "symbol": "Restaurant",
     },
-    "Kinder Erlebnis aller Art": {
+    "kindererlebnis": {
+        "description": "Kinder Erlebnis aller Art",
         "tags": [
         ],
         "terms": {
@@ -185,7 +195,8 @@ SEARCH_PROFILES = {
         "fuzzy": True,
         "symbol": "Scenic Area",
     },
-    "allgemein spektakuläre kindertaugliche Sehenswürdigkeit": {
+    "sehenswürdigkeit": {
+        "description": "allgemein spektakuläre kindertaugliche Sehenswürdigkeit",
         "tags": [
             {"key": "tourism", "value": "attraction"},
             {"key": "tourism", "value": "viewpoint"},
@@ -203,48 +214,34 @@ SEARCH_PROFILES = {
     },
 }
 
-ALIASES = {
-    "camping": "Campingplatz",
-    "spielplatz": "Spielplatz",
-    "freibad": "Freibad, Erlebnisbad, Thermalbad",
-    "strand": "Badesee, Strand",
-    "freizeitpark": "Freizeitpark",
-    "zoo": "Zoo, Streichelzoo",
-    "aquarium": "Aquarium",
-    "mcdonalds": "McDonalds",
-    "restaurant": "Restaurant mit Kinderkarte",
-    "kindererlebnis": "Kinder Erlebnis aller Art",
-    "sehenswürdigkeit": "allgemein spektakuläre kindertaugliche Sehenswürdigkeit",
-}
-
 PROFILE_DEFAULTS = {
-    "Campingplatz": {"max_km": 10.0, "sample_km": 5.0, "batch_size": 6},
-    "Spielplatz": {"max_km": 3.0, "sample_km": 3.0, "batch_size": 4},
-    "Freibad, Erlebnisbad, Thermalbad": {"max_km": 10.0, "sample_km": 5.0, "batch_size": 4},
-    "Badesee, Strand": {"max_km": 25.0, "sample_km": 12.0, "batch_size": 4},
-    "Freizeitpark": {"max_km": 10.0, "sample_km": 5.0, "batch_size": 3},
-    "Zoo, Streichelzoo": {"max_km": 12.0, "sample_km": 6.0, "batch_size": 3},
-    "Aquarium": {"max_km": 15.0, "sample_km": 7.0, "batch_size": 4},
-    "McDonalds": {"max_km": 5.0, "sample_km": 2.5, "batch_size": 4},
-    "Restaurant mit Kinderkarte": {"max_km": 5.0, "sample_km": 2.5, "batch_size": 4},
-    "Kinder Erlebnis aller Art": {"max_km": 15.0, "sample_km": 7.0, "batch_size": 4},
-    "allgemein spektakuläre kindertaugliche Sehenswürdigkeit": {"max_km": 20.0, "sample_km": 10.0, "batch_size": 3},
+    "camping": {"max_km": 10.0, "sample_km": 5.0, "batch_size": 6},
+    "spielplatz": {"max_km": 3.0, "sample_km": 3.0, "batch_size": 4},
+    "freibad": {"max_km": 10.0, "sample_km": 5.0, "batch_size": 4},
+    "strand": {"max_km": 25.0, "sample_km": 12.0, "batch_size": 4},
+    "freizeitpark": {"max_km": 10.0, "sample_km": 5.0, "batch_size": 3},
+    "zoo": {"max_km": 12.0, "sample_km": 6.0, "batch_size": 3},
+    "aquarium": {"max_km": 15.0, "sample_km": 7.0, "batch_size": 4},
+    "mcdonalds": {"max_km": 5.0, "sample_km": 2.5, "batch_size": 4},
+    "restaurant": {"max_km": 5.0, "sample_km": 2.5, "batch_size": 4},
+    "kindererlebnis": {"max_km": 15.0, "sample_km": 7.0, "batch_size": 4},
+    "sehenswürdigkeit": {"max_km": 20.0, "sample_km": 10.0, "batch_size": 3},
 }
 
 DEFAULT_QUERY_BEHAVIOR = {"retries": 2, "endpoints": 2}
 
 PROFILE_QUERY_BEHAVIOR = {
-    "Campingplatz": {"retries": 3, "endpoints": 3},
-    "Spielplatz": {"retries": 2, "endpoints": 2},
-    "Freibad, Erlebnisbad, Thermalbad": {"retries": 2, "endpoints": 2},
-    "Badesee, Strand": {"retries": 2, "endpoints": 2},
-    "Freizeitpark": {"retries": 2, "endpoints": 2},
-    "Zoo, Streichelzoo": {"retries": 2, "endpoints": 2},
-    "Aquarium": {"retries": 2, "endpoints": 2},
-    "McDonalds": {"retries": 2, "endpoints": 2},
-    "Restaurant mit Kinderkarte": {"retries": 3, "endpoints": 3},
-    "Kinder Erlebnis aller Art": {"retries": 3, "endpoints": 3},
-    "allgemein spektakuläre kindertaugliche Sehenswürdigkeit": {"retries": 3, "endpoints": 3},
+    "camping": {"retries": 3, "endpoints": 3},
+    "spielplatz": {"retries": 2, "endpoints": 2},
+    "freibad": {"retries": 2, "endpoints": 2},
+    "strand": {"retries": 2, "endpoints": 2},
+    "freizeitpark": {"retries": 2, "endpoints": 2},
+    "zoo": {"retries": 2, "endpoints": 2},
+    "aquarium": {"retries": 2, "endpoints": 2},
+    "mcdonalds": {"retries": 2, "endpoints": 2},
+    "restaurant": {"retries": 3, "endpoints": 3},
+    "kindererlebnis": {"retries": 3, "endpoints": 3},
+    "sehenswürdigkeit": {"retries": 3, "endpoints": 3},
 }
 
 def haversine_km(lat1, lon1, lat2, lon2):
@@ -338,14 +335,12 @@ def chunked(seq, size):
         yield seq[i:i + size]
 
 
-def canonical_profile_name(name):
-    if name in SEARCH_PROFILES:
-        return name
-    return ALIASES.get(name.strip().lower(), name)
+def profile_description(profile_id):
+    return SEARCH_PROFILES[profile_id]["description"]
 
 
-def profile_terms_for_country(profile_name, country_code):
-    profile = SEARCH_PROFILES[profile_name]
+def profile_terms_for_country(profile_id, country_code):
+    profile = SEARCH_PROFILES[profile_id]
     terms = []
 
     if country_code in profile["terms"]:
@@ -364,8 +359,8 @@ def profile_terms_for_country(profile_name, country_code):
     return dedup
 
 
-def build_query(points, max_km, profile_name, country_code, use_fuzzy):
-    profile = SEARCH_PROFILES[profile_name]
+def build_query(points, max_km, profile_id, country_code, use_fuzzy):
+    profile = SEARCH_PROFILES[profile_id]
     radius_m = int(max_km * 1000)
     lines = []
 
@@ -385,9 +380,9 @@ def build_query(points, max_km, profile_name, country_code, use_fuzzy):
                 else:
                     lines.append(f'{sel}["{key}"="{value}"];')
 
-    terms = profile_terms_for_country(profile_name, country_code)
+    terms = profile_terms_for_country(profile_id, country_code)
     regex = "|".join(re.escape(t) for t in terms)
-    # Profiles with no tag filters (e.g. "Kinder Erlebnis aller Art") need text search or the union is empty.
+    # Profiles with no tag filters (e.g. kindererlebnis) need text search or the union is empty.
     must_fuzzy = not lines and bool(regex) and profile.get("fuzzy", False)
 
     if (use_fuzzy or must_fuzzy) and profile.get("fuzzy") and regex:
@@ -404,16 +399,16 @@ def build_query(points, max_km, profile_name, country_code, use_fuzzy):
 
     if not lines:
         raise ValueError(
-            f"No Overpass query could be built for profile {profile_name!r} "
-            f"(no tag filters and no usable search terms for this country). "
+            f"No Overpass query could be built for profile {profile_id!r} "
+            f"({profile_description(profile_id)!r}; no tag filters and no usable search terms for this country). "
             f"Try --with-fuzzy if the profile supports it."
         )
 
     return "[out:json][timeout:180];\n(\n" + "\n".join(lines) + "\n);\nout center tags;\n"
 
 
-def query_overpass(session, query, profile_name, verbose=False):
-    behavior = {**DEFAULT_QUERY_BEHAVIOR, **PROFILE_QUERY_BEHAVIOR.get(profile_name, {})}
+def query_overpass(session, query, profile_id, verbose=False):
+    behavior = {**DEFAULT_QUERY_BEHAVIOR, **PROFILE_QUERY_BEHAVIOR.get(profile_id, {})}
     max_retries = behavior["retries"]
     endpoint_count = behavior["endpoints"]
 
@@ -520,23 +515,25 @@ def min_distance_to_track_km(lat, lon, track_points, coarse_step=30):
     return best
 
 
-def choose_name(tags, profile_name):
+def choose_name(tags, profile_id):
+    desc = profile_description(profile_id)
     for key in ("name", "official_name", "short_name", "brand", "operator"):
         val = tags.get(key, "").strip()
         if val:
             return val
 
-    for tag in SEARCH_PROFILES[profile_name]["tags"]:
+    for tag in SEARCH_PROFILES[profile_id]["tags"]:
         if tag["value"] != "*" and tags.get(tag["key"]) == tag["value"]:
-            return f"{profile_name} ({tag['key']}={tag['value']})"
+            return f"{desc} ({tag['key']}={tag['value']})"
 
-    return profile_name
+    return desc
 
 
-def choose_kind(tags, profile_name):
+def choose_kind(tags, profile_id):
+    desc = profile_description(profile_id)
     matches = []
 
-    for tag in SEARCH_PROFILES[profile_name]["tags"]:
+    for tag in SEARCH_PROFILES[profile_id]["tags"]:
         key = tag["key"]
         value = tag["value"]
         if value == "*":
@@ -546,11 +543,11 @@ def choose_kind(tags, profile_name):
             matches.append(f"{key}={value}")
 
     if matches:
-        return f"{profile_name} [{', '.join(matches[:3])}]"
-    return profile_name
+        return f"{desc} [{', '.join(matches[:3])}]"
+    return desc
 
 
-def extract_candidates(data, track_points, max_km, profile_name):
+def extract_candidates(data, track_points, max_km, profile_id):
     dedup = OrderedDict()
 
     for el in data.get("elements", []):
@@ -571,8 +568,8 @@ def extract_candidates(data, track_points, max_km, profile_name):
         dedup[key] = {
             "lat": lat,
             "lon": lon,
-            "name": choose_name(tags, profile_name),
-            "kind": choose_kind(tags, profile_name),
+            "name": choose_name(tags, profile_id),
+            "kind": choose_kind(tags, profile_id),
             "distance_km": d,
             "tags": tags,
         }
@@ -580,8 +577,9 @@ def extract_candidates(data, track_points, max_km, profile_name):
     return list(dedup.values())
 
 
-def add_waypoints_to_gpx(root, items, profile_name):
-    symbol = SEARCH_PROFILES[profile_name].get("symbol", "Pin")
+def add_waypoints_to_gpx(root, items, profile_id):
+    symbol = SEARCH_PROFILES[profile_id].get("symbol", "Pin")
+    pdesc = profile_description(profile_id)
 
     for item in items:
         wpt = ET.Element(f"{{{GPX_NS}}}wpt", lat=f"{item['lat']:.6f}", lon=f"{item['lon']:.6f}")
@@ -590,7 +588,7 @@ def add_waypoints_to_gpx(root, items, profile_name):
         name_el.text = item["name"]
 
         type_el = ET.SubElement(wpt, f"{{{GPX_NS}}}type")
-        type_el.text = profile_name
+        type_el.text = pdesc
 
         desc_el = ET.SubElement(wpt, f"{{{GPX_NS}}}desc")
         desc_el.text = f"{item['kind']}; approx {item['distance_km']:.1f} km from track"
@@ -600,27 +598,28 @@ def add_waypoints_to_gpx(root, items, profile_name):
 
         cmt_el = ET.SubElement(wpt, f"{{{GPX_NS}}}cmt")
         cc = item["tags"].get("_country_code")
-        terms = profile_terms_for_country(profile_name, cc) if cc else []
+        terms = profile_terms_for_country(profile_id, cc) if cc else []
         cmt_el.text = "search terms: " + " / ".join(terms[:6]) if terms else "added from OSM tags"
 
         root.append(wpt)
 
 
 def print_available_profiles():
-    print("Available profiles:")
-    for name in SEARCH_PROFILES:
-        defaults = PROFILE_DEFAULTS.get(name, {})
+    print("Available profiles (use id on the CLI):")
+    for pid in SEARCH_PROFILES:
+        pdata = SEARCH_PROFILES[pid]
+        defaults = PROFILE_DEFAULTS.get(pid, {})
         print(
-            f"  - {name}"
+            f"  - {pid} — {pdata['description']}"
             f"  [max_km={defaults.get('max_km')}, "
             f"sample_km={defaults.get('sample_km')}, "
             f"batch_size={defaults.get('batch_size')}]"
         )
 
 
-def resolve_profile_params(profile_name, args):
+def resolve_profile_params(profile_id, args):
     fallback = {"max_km": 10.0, "sample_km": 20.0, "batch_size": 4}
-    defaults = {**fallback, **PROFILE_DEFAULTS.get(profile_name, {})}
+    defaults = {**fallback, **PROFILE_DEFAULTS.get(profile_id, {})}
 
     max_km = args.max_km if args.max_km is not None else defaults["max_km"]
     sample_km = args.sample_km if args.sample_km is not None else defaults["sample_km"]
@@ -633,7 +632,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("input_gpx", nargs="?", help="Input GPX with track")
     ap.add_argument("output_gpx", nargs="?", help="Output GPX with added POI waypoints")
-    ap.add_argument("--profile", help="What to search for along the route")
+    ap.add_argument(
+        "--profile",
+        help="Profile id (see --list-profiles), e.g. camping or spielplatz; case-insensitive",
+    )
 
     ap.add_argument("--with-fuzzy", action="store_true", help="Enable fuzzy text fallback searches")
     ap.add_argument("--sample-km", type=float, default=None, help="Track sampling spacing in km")
@@ -651,13 +653,13 @@ def main():
     if not args.input_gpx or not args.output_gpx or not args.profile:
         ap.error("input_gpx, output_gpx and --profile are required unless --list-profiles is used")
 
-    profile_name = canonical_profile_name(args.profile)
-    if profile_name not in SEARCH_PROFILES:
+    profile_id = args.profile.strip().lower()
+    if profile_id not in SEARCH_PROFILES:
         print(f"Unknown profile: {args.profile}", file=sys.stderr)
         print_available_profiles()
         sys.exit(2)
 
-    max_km, sample_km, batch_size = resolve_profile_params(profile_name, args)
+    max_km, sample_km, batch_size = resolve_profile_params(profile_id, args)
 
     tree, root, track_points = parse_gpx_trackpoints(args.input_gpx)
     sampled = sample_track_by_distance(track_points, spacing_km=sample_km)
@@ -665,7 +667,7 @@ def main():
 
     print(f"Loaded {len(track_points)} track points.")
     print(f"Sampled to {len(sampled)} points at ~{sample_km} km spacing.")
-    print(f"Profile: {profile_name}")
+    print(f"Profile: {profile_id} ({profile_description(profile_id)})")
     print(f"Using max_km={max_km}, sample_km={sample_km}, batch_size={batch_size}")
 
     country_segments = detect_country_segments(
@@ -684,18 +686,18 @@ def main():
 
     for cc, pts in country_segments.items():
         country_label = COUNTRY_LABELS.get(cc, cc)
-        terms_preview = ", ".join(profile_terms_for_country(profile_name, cc)[:4])
+        terms_preview = ", ".join(profile_terms_for_country(profile_id, cc)[:4])
         print(f"\nQuerying country {cc} ({country_label}) with terms: {terms_preview or '(tags only)'}")
 
         for batch in chunked(pts, batch_size):
-            query = build_query(batch, max_km, profile_name, cc, args.with_fuzzy)
+            query = build_query(batch, max_km, profile_id, cc, args.with_fuzzy)
             data = query_overpass(
                 session,
                 query,
-                profile_name=profile_name,
+                profile_id,
                 verbose=args.verbose,
             )
-            candidates = extract_candidates(data, track_points, max_km, profile_name)
+            candidates = extract_candidates(data, track_points, max_km, profile_id)
 
             for item in candidates:
                 item["tags"]["_country_code"] = cc
@@ -708,7 +710,7 @@ def main():
     items = sorted(all_candidates.values(), key=lambda x: (x["distance_km"], x["name"].lower()))
 
     print(f"\nAdding {len(items)} waypoints.")
-    add_waypoints_to_gpx(root, items, profile_name)
+    add_waypoints_to_gpx(root, items, profile_id)
     tree.write(args.output_gpx, encoding="utf-8", xml_declaration=True)
     print(f"Wrote: {args.output_gpx}")
 
