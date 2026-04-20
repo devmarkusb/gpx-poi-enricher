@@ -8,10 +8,11 @@ Examples:
   python add-pois-to-gpx.py split.gpx zoos.gpx --profile zoo --max-km 15
 
 Notes:
-- The route is sampled, then representative route points are reverse-geocoded to detect country
-  segments (DE / FR / ES / others).
+- The route is sampled, then representative route points are reverse-geocoded to segment the route
+  by country (DE / FR / ES / others) so localized text terms apply per segment.
 - Queries are sent to Overpass in small batches with retries and endpoint fallback.
-- Search is tag-first. Fuzzy categories can optionally also use localized text fallback terms.
+- Search is tag-first. Profiles with a non-empty ``terms`` map also union name/description/operator
+  regex matches for that segment; profiles with no ``terms`` are tag-only.
 - Profile-specific defaults are applied unless explicitly overridden on the command line.
 """
 
@@ -40,13 +41,6 @@ OVERPASS_URLS = [
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
 USER_AGENT = "gpx-poi-enricher/3.0 (personal route planning)"
 
-COUNTRY_LABELS = {
-    "DE": "Germany",
-    "FR": "France",
-    "ES": "Spain",
-    "EN": "Generic",
-}
-
 SEARCH_PROFILES = {
     "camping": {
         "description": "Campingplatz",
@@ -60,7 +54,6 @@ SEARCH_PROFILES = {
             "ES": ["camping", "área de autocaravanas"],
             "EN": ["camping", "motorhome stopover", "caravan site"],
         },
-        "fuzzy": True,
         "symbol": "Campground",
     },
     "spielplatz": {
@@ -68,13 +61,6 @@ SEARCH_PROFILES = {
         "tags": [
             {"key": "leisure", "value": "playground"},
         ],
-        "terms": {
-            "DE": ["Spielplatz", "Abenteuerspielplatz", "Wasserspielplatz"],
-            "FR": ["aire de jeux", "terrain de jeux", "parc de jeux"],
-            "ES": ["parque infantil", "zona de juegos", "área de juegos"],
-            "EN": ["playground", "children playground"],
-        },
-        "fuzzy": False,
         "symbol": "Playground",
     },
     "freibad": {
@@ -90,7 +76,6 @@ SEARCH_PROFILES = {
             "ES": ["piscina", "parque acuático", "balneario", "termas"],
             "EN": ["outdoor pool", "water park", "thermal bath"],
         },
-        "fuzzy": True,
         "symbol": "Swimming Area",
     },
     "strand": {
@@ -105,7 +90,6 @@ SEARCH_PROFILES = {
             "ES": ["playa", "zona de baño", "lago para bañarse"],
             "EN": ["beach", "swimming lake", "bathing place"],
         },
-        "fuzzy": True,
         "symbol": "Beach",
     },
     "freizeitpark": {
@@ -120,7 +104,6 @@ SEARCH_PROFILES = {
             "ES": ["parque de atracciones", "parque temático"],
             "EN": ["theme park", "amusement park"],
         },
-        "fuzzy": True,
         "symbol": "Amusement Park",
     },
     "zoo": {
@@ -129,13 +112,6 @@ SEARCH_PROFILES = {
             {"key": "tourism", "value": "zoo"},
             {"key": "animal", "value": "petting_zoo"},
         ],
-        "terms": {
-            "DE": ["Zoo", "Tierpark", "Streichelzoo"],
-            "FR": ["zoo", "parc animalier", "ferme pédagogique"],
-            "ES": ["zoológico", "parque zoológico", "granja escuela"],
-            "EN": ["zoo", "petting zoo", "animal park"],
-        },
-        "fuzzy": False,
         "symbol": "Zoo",
     },
     "aquarium": {
@@ -143,13 +119,6 @@ SEARCH_PROFILES = {
         "tags": [
             {"key": "tourism", "value": "aquarium"},
         ],
-        "terms": {
-            "DE": ["Aquarium"],
-            "FR": ["aquarium"],
-            "ES": ["acuario"],
-            "EN": ["aquarium"],
-        },
-        "fuzzy": False,
         "symbol": "Aquarium",
     },
     "mcdonalds": {
@@ -165,7 +134,6 @@ SEARCH_PROFILES = {
             "ES": ["McDonald's"],
             "EN": ["McDonald's"],
         },
-        "fuzzy": True,
         "symbol": "Fast Food",
     },
     "restaurant": {
@@ -179,7 +147,6 @@ SEARCH_PROFILES = {
             "ES": ["menú infantil", "restaurante familiar", "apto para niños"],
             "EN": ["kids menu", "family restaurant", "child friendly restaurant"],
         },
-        "fuzzy": True,
         "symbol": "Restaurant",
     },
     "kindererlebnis": {
@@ -192,7 +159,6 @@ SEARCH_PROFILES = {
             "ES": ["parque de ocio", "actividad infantil", "parque familiar", "parque infantil cubierto"],
             "EN": ["kids attraction", "family attraction", "indoor playground", "children activity"],
         },
-        "fuzzy": True,
         "symbol": "Scenic Area",
     },
     "sehenswürdigkeit": {
@@ -209,7 +175,6 @@ SEARCH_PROFILES = {
             "ES": ["atracción turística", "familiar", "mirador", "imprescindible"],
             "EN": ["family attraction", "scenic viewpoint", "must see", "kid friendly attraction"],
         },
-        "fuzzy": True,
         "symbol": "Scenic Area",
     },
 }
@@ -335,11 +300,12 @@ def profile_description(profile_id):
 def profile_terms_for_country(profile_id, country_code):
     profile = SEARCH_PROFILES[profile_id]
     terms = []
+    tmap = profile.get("terms") or {}
 
-    if country_code in profile["terms"]:
-        terms.extend(profile["terms"][country_code])
+    if country_code in tmap:
+        terms.extend(tmap[country_code])
 
-    terms.extend(profile["terms"].get("EN", []))
+    terms.extend(tmap.get("EN", []))
 
     dedup = []
     seen = set()
@@ -352,7 +318,7 @@ def profile_terms_for_country(profile_id, country_code):
     return dedup
 
 
-def build_query(points, max_km, profile_id, country_code, use_fuzzy):
+def build_query(points, max_km, profile_id, country_code):
     profile = SEARCH_PROFILES[profile_id]
     radius_m = int(max_km * 1000)
     lines = []
@@ -375,10 +341,8 @@ def build_query(points, max_km, profile_id, country_code, use_fuzzy):
 
     terms = profile_terms_for_country(profile_id, country_code)
     regex = "|".join(re.escape(t) for t in terms)
-    # Profiles with no tag filters (e.g. kindererlebnis) need text search or the union is empty.
-    must_fuzzy = not lines and bool(regex) and profile.get("fuzzy", False)
 
-    if (use_fuzzy or must_fuzzy) and profile.get("fuzzy") and regex:
+    if regex:
         for lat, lon in points:
             selectors = [
                 f"node(around:{radius_m},{lat},{lon})",
@@ -393,8 +357,8 @@ def build_query(points, max_km, profile_id, country_code, use_fuzzy):
     if not lines:
         raise ValueError(
             f"No Overpass query could be built for profile {profile_id!r} "
-            f"({profile_description(profile_id)!r}; no tag filters and no usable search terms for this country). "
-            f"Try --with-fuzzy if the profile supports it."
+            f"({profile_description(profile_id)!r}; no tag filters and no terms for this segment). "
+            f"Add non-empty 'terms' in the profile, or tag filters."
         )
 
     return "[out:json][timeout:180];\n(\n" + "\n".join(lines) + "\n);\nout center tags;\n"
@@ -588,11 +552,6 @@ def add_waypoints_to_gpx(root, items, profile_id):
         sym_el = ET.SubElement(wpt, f"{{{GPX_NS}}}sym")
         sym_el.text = symbol
 
-        cmt_el = ET.SubElement(wpt, f"{{{GPX_NS}}}cmt")
-        cc = item["tags"].get("_country_code")
-        terms = profile_terms_for_country(profile_id, cc) if cc else []
-        cmt_el.text = "search terms: " + " / ".join(terms[:6]) if terms else "added from OSM tags"
-
         root.append(wpt)
 
 
@@ -629,7 +588,6 @@ def main():
         help="Profile id (see --list-profiles), e.g. camping or spielplatz; case-insensitive",
     )
 
-    ap.add_argument("--with-fuzzy", action="store_true", help="Enable fuzzy text fallback searches")
     ap.add_argument("--sample-km", type=float, default=None, help="Track sampling spacing in km")
     ap.add_argument("--max-km", type=float, default=None, help="Max distance from track in km")
     ap.add_argument("--country-sample-km", type=float, default=40.0, help="Reverse geocode spacing in km (default: 40)")
@@ -670,19 +628,12 @@ def main():
 
     if not country_segments:
         country_segments = OrderedDict([("EN", sampled)])
-        print("No country detection succeeded; falling back to generic EN terms.")
-    else:
-        print("Detected countries along route:", ", ".join(country_segments.keys()))
 
     all_candidates = OrderedDict()
 
     for cc, pts in country_segments.items():
-        country_label = COUNTRY_LABELS.get(cc, cc)
-        terms_preview = ", ".join(profile_terms_for_country(profile_id, cc)[:4])
-        print(f"\nQuerying country {cc} ({country_label}) with terms: {terms_preview or '(tags only)'}")
-
         for batch in chunked(pts, batch_size):
-            query = build_query(batch, max_km, profile_id, cc, args.with_fuzzy)
+            query = build_query(batch, max_km, profile_id, cc)
             data = query_overpass(
                 session,
                 query,
@@ -692,7 +643,6 @@ def main():
             candidates = extract_candidates(data, track_points, max_km, profile_id)
 
             for item in candidates:
-                item["tags"]["_country_code"] = cc
                 key = (round(item["lat"], 5), round(item["lon"], 5))
                 if key not in all_candidates:
                     all_candidates[key] = item
