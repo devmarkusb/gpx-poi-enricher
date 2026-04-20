@@ -22,6 +22,7 @@ import json
 import math
 import re
 import sys
+import threading
 import time
 import xml.etree.ElementTree as ET
 from collections import OrderedDict
@@ -125,16 +126,9 @@ SEARCH_PROFILES = {
     "mcdonalds": {
         "description": "McDonalds",
         "tags": [
-            {"key": "brand", "value": "McDonald's"},
-            {"key": "name", "value": "McDonald's"},
+            {"key": "amenity", "value": "fast_food", "and": {"key": "brand", "value": "McDonald's"}},
             {"key": "brand:wikidata", "value": "Q38076"},
         ],
-        "terms": {
-            "DE": ["McDonald's", "McDonalds"],
-            "FR": ["McDonald's", "McDo"],
-            "ES": ["McDonald's"],
-            "EN": ["McDonald's"],
-        },
         "symbol": "Fast Food",
     },
     "restaurant": {
@@ -188,8 +182,8 @@ PROFILE_DEFAULTS = {
     "freizeitpark": {"max_km": 10.0, "sample_km": 5.0, "batch_size": 3},
     "zoo": {"max_km": 12.0, "sample_km": 6.0, "batch_size": 3},
     "aquarium": {"max_km": 15.0, "sample_km": 7.0, "batch_size": 4},
-    "mcdonalds": {"max_km": 5.0, "sample_km": 2.5, "batch_size": 4},
-    "restaurant": {"max_km": 5.0, "sample_km": 2.5, "batch_size": 4},
+    "mcdonalds": {"max_km": 5.0, "sample_km": 10.0, "batch_size": 10},
+    "restaurant": {"max_km": 5.0, "sample_km": 10.0, "batch_size": 8},
     "kindererlebnis": {"max_km": 15.0, "sample_km": 7.0, "batch_size": 4},
     "sehenswürdigkeit": {"max_km": 20.0, "sample_km": 10.0, "batch_size": 3},
 }
@@ -202,6 +196,72 @@ PROFILE_QUERY_BEHAVIOR = {
     "kindererlebnis": {"retries": 3},
     "sehenswürdigkeit": {"retries": 3},
 }
+
+
+def _short_http_host(url):
+    if not url:
+        return "—"
+    s = url
+    for p in ("https://", "http://"):
+        if s.startswith(p):
+            s = s[len(p) :]
+            break
+    return s.split("/")[0] if s else url
+
+
+class ProgressHeartbeat:
+    """Print status every ``interval`` seconds while long operations run (stderr, flushed)."""
+
+    def __init__(self, state, interval=5.0, stream=None):
+        self.state = state
+        self.interval = interval
+        self.stream = stream if stream is not None else sys.stderr
+        self._stop = threading.Event()
+        self._thread = None
+
+    def _format_line(self):
+        s = self.state
+        phase = s.get("phase", "?")
+        pois = s.get("pois_found", 0)
+
+        if phase == "nominatim":
+            si = s.get("nominatim_sample_idx", 0)
+            st = s.get("nominatim_samples_total", "?")
+            rv = s.get("nominatim_rev_calls", 0)
+            return (
+                f"[progress] nominatim: sample {si + 1}/{st}, "
+                f"reverse-geocode calls completed: {rv} | pois so far: {pois}"
+            )
+
+        if phase == "overpass":
+            bcur, btot = s.get("batch", (0, 0))
+            cc = s.get("country", "?")
+            host = _short_http_host(s.get("endpoint"))
+            att = s.get("attempt")
+            mx = s.get("max_retries")
+            att_s = f"{att}/{mx}" if att is not None and mx else "—"
+            return (
+                f"[progress] overpass: batch {bcur}/{btot} ({cc}) | "
+                f"{host} attempt {att_s} | pois so far: {pois}"
+            )
+
+        return f"[progress] {phase} | pois so far: {pois}"
+
+    def _run(self):
+        while not self._stop.wait(self.interval):
+            print(self._format_line(), file=self.stream, flush=True)
+
+    def __enter__(self):
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=self.interval + 2.0)
+        return False
+
 
 def haversine_km(lat1, lon1, lat2, lon2):
     r = 6371.0088
@@ -263,28 +323,40 @@ def reverse_country_code(lat, lon, session):
     return data.get("address", {}).get("country_code", "").upper()
 
 
-def detect_country_segments(sampled_points, session, min_spacing_for_reverse_km=40.0):
+def detect_country_segments(sampled_points, session, min_spacing_for_reverse_km=40.0, progress=None):
     country_points = OrderedDict()
     last_rev = None
+    last_cc = None
+    n = len(sampled_points)
+    rev_calls = 0
 
-    for pt in sampled_points:
+    for i, pt in enumerate(sampled_points):
+        if progress is not None:
+            progress["nominatim_sample_idx"] = i
+            progress["nominatim_samples_total"] = n
+
         if last_rev is None:
             need = True
         else:
             need = haversine_km(last_rev[0], last_rev[1], pt[0], pt[1]) >= min_spacing_for_reverse_km
 
-        if not need:
-            continue
+        if need:
+            rev_calls += 1
+            if progress is not None:
+                progress["nominatim_rev_calls"] = rev_calls
 
-        try:
-            cc = reverse_country_code(pt[0], pt[1], session)
-            if cc:
-                country_points.setdefault(cc, []).append(pt)
-        except requests.RequestException as e:
-            print(f"Reverse geocoding failed for {pt}: {e}", file=sys.stderr)
+            try:
+                cc = reverse_country_code(pt[0], pt[1], session)
+                if cc:
+                    last_cc = cc
+            except requests.RequestException as e:
+                print(f"Reverse geocoding failed for {pt}: {e}", file=sys.stderr)
 
-        last_rev = pt
-        time.sleep(1.1)
+            last_rev = pt
+            time.sleep(1.1)
+
+        if last_cc:
+            country_points.setdefault(last_cc, []).append(pt)
 
     return country_points
 
@@ -335,10 +407,12 @@ def build_query(points, max_km, profile_id, country_code):
             for tag in profile["tags"]:
                 key = tag["key"]
                 value = tag["value"]
-                if value == "*":
-                    lines.append(f'{sel}["{key}"];')
-                else:
-                    lines.append(f'{sel}["{key}"="{value}"];')
+                condition = f'["{key}"]' if value == "*" else f'["{key}"="{value}"]'
+                if "and" in tag:
+                    for extra in (tag["and"] if isinstance(tag["and"], list) else [tag["and"]]):
+                        ek, ev = extra["key"], extra["value"]
+                        condition += f'["{ek}"]' if ev == "*" else f'["{ek}"="{ev}"]'
+                lines.append(f'{sel}{condition};')
 
     terms = profile_terms_for_country(profile_id, country_code)
     regex = "|".join(re.escape(t) for t in terms)
@@ -365,7 +439,7 @@ def build_query(points, max_km, profile_id, country_code):
     return "[out:json][timeout:180];\n(\n" + "\n".join(lines) + "\n);\nout center tags;\n"
 
 
-def query_overpass(session, query, profile_id, verbose=False):
+def query_overpass(session, query, profile_id, verbose=False, progress=None):
     behavior = {**DEFAULT_QUERY_BEHAVIOR, **PROFILE_QUERY_BEHAVIOR.get(profile_id, {})}
     max_retries = behavior["retries"]
 
@@ -376,6 +450,10 @@ def query_overpass(session, query, profile_id, verbose=False):
     for base_url in urls:
         for attempt in range(max_retries):
             try:
+                if progress is not None:
+                    progress["endpoint"] = base_url
+                    progress["attempt"] = attempt + 1
+                    progress["max_retries"] = max_retries
                 r = session.post(base_url, data={"data": query}, headers=headers, timeout=240)
                 content_type = r.headers.get("content-type", "")
                 if r.ok and "json" in content_type.lower():
@@ -604,6 +682,13 @@ def main():
     ap.add_argument("--batch-size", type=int, default=None, help="Overpass query batch size")
     ap.add_argument("--list-profiles", action="store_true", help="List supported search profiles and exit")
     ap.add_argument("--verbose", action="store_true", help="Show verbose Overpass error bodies")
+    ap.add_argument(
+        "--progress-interval",
+        type=float,
+        default=5.0,
+        metavar="SEC",
+        help="Print progress to stderr every SEC seconds during Nominatim/Overpass (default: 5; 0 disables)",
+    )
     args = ap.parse_args()
 
     if args.list_profiles:
@@ -630,34 +715,78 @@ def main():
     print(f"Profile: {profile_id} ({profile_description(profile_id)})")
     print(f"Using max_km={max_km}, sample_km={sample_km}, batch_size={batch_size}")
 
-    country_segments = detect_country_segments(
-        sampled,
-        session,
-        min_spacing_for_reverse_km=args.country_sample_km,
-    )
+    progress_state = {
+        "phase": "nominatim",
+        "pois_found": 0,
+        "endpoint": None,
+        "attempt": None,
+        "max_retries": None,
+        "batch": (0, 0),
+        "country": "",
+    }
+
+    hb_ctx = None
+    if args.progress_interval and args.progress_interval > 0:
+        hb_ctx = ProgressHeartbeat(progress_state, interval=args.progress_interval)
+
+    if hb_ctx:
+        with hb_ctx:
+            country_segments = detect_country_segments(
+                sampled,
+                session,
+                min_spacing_for_reverse_km=args.country_sample_km,
+                progress=progress_state,
+            )
+    else:
+        country_segments = detect_country_segments(
+            sampled,
+            session,
+            min_spacing_for_reverse_km=args.country_sample_km,
+            progress=None,
+        )
 
     if not country_segments:
         country_segments = OrderedDict([("EN", sampled)])
 
+    total_batches = sum(
+        (len(pts) + batch_size - 1) // batch_size for pts in country_segments.values()
+    )
+    batch_num = 0
+
     all_candidates = OrderedDict()
 
-    for cc, pts in country_segments.items():
-        for batch in chunked(pts, batch_size):
-            query = build_query(batch, max_km, profile_id, cc)
-            data = query_overpass(
-                session,
-                query,
-                profile_id,
-                verbose=args.verbose,
-            )
-            candidates = extract_candidates(data, track_points, max_km, profile_id)
+    def run_overpass_batches():
+        nonlocal batch_num
+        for cc, pts in country_segments.items():
+            for batch in chunked(pts, batch_size):
+                batch_num += 1
+                progress_state["phase"] = "overpass"
+                progress_state["country"] = cc
+                progress_state["batch"] = (batch_num, total_batches)
 
-            for item in candidates:
-                key = (round(item["lat"], 5), round(item["lon"], 5))
-                if key not in all_candidates:
-                    all_candidates[key] = item
+                query = build_query(batch, max_km, profile_id, cc)
+                data = query_overpass(
+                    session,
+                    query,
+                    profile_id,
+                    verbose=args.verbose,
+                    progress=progress_state,
+                )
+                candidates = extract_candidates(data, track_points, max_km, profile_id)
 
-            time.sleep(1.0)
+                for item in candidates:
+                    key = (round(item["lat"], 5), round(item["lon"], 5))
+                    if key not in all_candidates:
+                        all_candidates[key] = item
+
+                progress_state["pois_found"] = len(all_candidates)
+                time.sleep(1.0)
+
+    if hb_ctx:
+        with ProgressHeartbeat(progress_state, interval=args.progress_interval):
+            run_overpass_batches()
+    else:
+        run_overpass_batches()
 
     items = sorted(all_candidates.values(), key=lambda x: (x["distance_km"], x["name"].lower()))
 
