@@ -1,6 +1,6 @@
 # gpx-poi-enricher
 
-**Enrich GPX tracks with Points of Interest from OpenStreetMap using configurable YAML profiles.**
+**A three-command toolkit for building POI-enriched GPX files from a Google Maps route.**
 
 [![CI](https://github.com/your-org/gpx-poi-enricher/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/gpx-poi-enricher/actions)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
@@ -11,11 +11,14 @@
 
 ## Table of Contents
 
+- [The Pipeline](#the-pipeline)
 - [Features](#features)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Command: maps-to-gpx](#command-maps-to-gpx)
+- [Command: gpx-split-waypoints](#command-gpx-split-waypoints)
+- [Command: gpx-poi-enricher](#command-gpx-poi-enricher)
 - [Built-in Profiles](#built-in-profiles)
-- [Usage](#usage)
 - [Creating Custom Profiles](#creating-custom-profiles)
 - [How It Works](#how-it-works)
 - [Data Attribution](#data-attribution)
@@ -24,14 +27,36 @@
 
 ---
 
+## The Pipeline
+
+```
+Google Maps URL
+      │
+      ▼
+ maps-to-gpx          ← converts a directions URL to a routed GPX track
+      │
+      ▼
+gpx-split-waypoints   ← adds evenly-spaced split markers (optional, for long routes)
+      │
+      ▼
+gpx-poi-enricher      ← queries OpenStreetMap for POIs along the track
+      │
+      ▼
+ waypoints.gpx        ← import into Garmin / OsmAnd / Google My Maps
+```
+
+All three commands are installed together and work independently or in sequence.
+
+---
+
 ## Features
 
-- Takes any GPX file containing a track and produces a new GPX file containing only waypoints — ready to import into Garmin, OsmAnd, or any other navigation app.
-- 11 ready-to-use profiles covering camping, beaches, playgrounds, theme parks, restaurants, and more.
+- **`maps-to-gpx`** — convert a Google Maps directions URL (including short `maps.app.goo.gl` links) directly to a routed GPX file. Handles place-name waypoints via Nominatim geocoding and routes via the public OSRM API. No API key required.
+- **`gpx-split-waypoints`** — add evenly-spaced split waypoints to a GPX track, useful for importing oversized files into apps that enforce a waypoint limit.
+- **`gpx-poi-enricher`** — enrich any GPX track with Points of Interest from OpenStreetMap. 11 ready-to-use profiles covering camping, beaches, playgrounds, theme parks, restaurants, and more.
 - Country-aware search terms: automatically detects which country each section of the route passes through and queries in the local language (DE, FR, ES, EN).
 - Searches OpenStreetMap via the public Overpass API with multi-endpoint fallback for reliability.
 - Configurable search radius, sampling interval, and batch size per profile — all overridable on the command line.
-- Progress reporting to stderr so you know something is happening during long queries.
 - Extensible: add a new profile by dropping a single YAML file into the `profiles/` directory.
 
 ---
@@ -56,45 +81,93 @@ pip install -e ".[dev]"
 
 ## Quick Start
 
-Find all campsites within 10 km of your route and write them to `camping.gpx`:
+Full pipeline — Google Maps URL to a campsite waypoint file:
 
 ```bash
+# Step 1: convert a Google Maps directions link to a GPX track
+maps-to-gpx "https://www.google.com/maps/dir/Paris/Lyon/Barcelona/" route.gpx
+
+# Step 2 (optional): add split markers every ~10% of the route
+gpx-split-waypoints route.gpx route-split.gpx 10
+
+# Step 3: find all campsites within 10 km of the route
 gpx-poi-enricher route.gpx camping.gpx --profile camping
 ```
 
-Find playgrounds within 5 km (overriding the profile default of 3 km):
+---
 
-```bash
-gpx-poi-enricher route.gpx playgrounds.gpx --profile playground --max-km 5
+## Command: maps-to-gpx
+
+Converts a Google Maps directions URL to a routed GPX file.
+
+- Follows redirects for short `maps.app.goo.gl` URLs
+- Handles both path-style (`/maps/dir/A/B/C`) and query-style (`?api=1&origin=...`) URLs
+- Geocodes place names via [Nominatim](https://nominatim.openstreetmap.org/) (no API key)
+- Routes via the public [OSRM](http://router.project-osrm.org/) API (no API key)
+- Writes a `<trk>` with the full routed geometry and `<wpt>` markers for each stopover
+
+```
+usage: maps-to-gpx [-h] [--mode {driving,cycling,walking}] [--name NAME]
+                   url output_gpx
+
+positional arguments:
+  url                   Google Maps directions URL (full or short
+                        maps.app.goo.gl link)
+  output_gpx            Output GPX file path
+
+options:
+  -h, --help            show this help message and exit
+  --mode {driving,cycling,walking}
+                        Transport mode for routing (default: driving)
+  --name NAME           Track name written into the GPX file (default: Route)
 ```
 
-List all available built-in profiles:
+**Examples:**
 
 ```bash
-gpx-poi-enricher --list-profiles
+# Path-style URL with place names
+maps-to-gpx "https://www.google.com/maps/dir/Paris/Lyon/Marseille/" route.gpx
+
+# Short URL
+maps-to-gpx "https://maps.app.goo.gl/ABC123" route.gpx
+
+# Query-style URL with multiple stopovers, custom name
+maps-to-gpx "https://www.google.com/maps/dir/?api=1&origin=Paris&destination=Barcelona&waypoints=Lyon|Avignon" route.gpx --name "France to Spain"
+
+# Cycling route
+maps-to-gpx "https://www.google.com/maps/dir/Amsterdam/Utrecht/" route.gpx --mode cycling
 ```
 
 ---
 
-## Built-in Profiles
+## Command: gpx-split-waypoints
 
-| Profile ID          | Description                                    | Default max_km |
-|---------------------|------------------------------------------------|---------------|
-| `camping`           | Campsite / motorhome stopover                  | 10.0          |
-| `playground`        | Playground                                     | 3.0           |
-| `outdoor_pool`      | Outdoor pool / water park / thermal bath       | 10.0          |
-| `beach`             | Beach / swimming lake                          | 25.0          |
-| `theme_park`        | Theme park / amusement park                    | 10.0          |
-| `zoo`               | Zoo / petting zoo                              | 12.0          |
-| `aquarium`          | Aquarium                                       | 15.0          |
-| `mcdonalds`         | McDonald's restaurants                         | 5.0           |
-| `restaurant`        | Family-friendly restaurant with kids menu      | 5.0           |
-| `kids_activities`   | Kids activities of all kinds                   | 15.0          |
-| `attractions`       | Family-friendly sights, viewpoints, museums    | 20.0          |
+Adds evenly-spaced waypoints along a GPX track, named `Split 1`, `Split 2`, etc. Useful when an app or device has a waypoint import limit and a long route needs to be broken into manageable segments.
+
+```
+usage: gpx-split-waypoints input.gpx output.gpx [segments]
+
+positional arguments:
+  input.gpx     Input GPX file with a track
+  output.gpx    Output GPX file (original track + split waypoints)
+  segments      Number of equal segments to split into (default: 10)
+```
+
+**Examples:**
+
+```bash
+# Split into 10 equal segments (default)
+gpx-split-waypoints route.gpx route-split.gpx
+
+# Split into 5 segments
+gpx-split-waypoints route.gpx route-split.gpx 5
+```
 
 ---
 
-## Usage
+## Command: gpx-poi-enricher
+
+Queries OpenStreetMap for Points of Interest along a GPX track and writes them as waypoints to a new GPX file.
 
 ```
 usage: gpx-poi-enricher [-h] [--profile PROFILE] [--max-km MAX_KM]
@@ -103,13 +176,6 @@ usage: gpx-poi-enricher [-h] [--profile PROFILE] [--max-km MAX_KM]
                         [--progress-interval SEC] [--verbose]
                         [--list-profiles]
                         [input_gpx] [output_gpx]
-
-Enrich a GPX track with Points of Interest from OpenStreetMap.
-
-Examples:
-  gpx-poi-enricher route.gpx camping.gpx --profile camping
-  gpx-poi-enricher route.gpx playgrounds.gpx --profile playground --max-km 5
-  gpx-poi-enricher --list-profiles
 
 positional arguments:
   input_gpx             Input GPX file with a track
@@ -134,6 +200,19 @@ options:
   --list-profiles       List built-in profiles and exit
 ```
 
+**Examples:**
+
+```bash
+# Find campsites within 10 km of the route
+gpx-poi-enricher route.gpx camping.gpx --profile camping
+
+# Find playgrounds within 5 km (overriding the profile default of 3 km)
+gpx-poi-enricher route.gpx playgrounds.gpx --profile playground --max-km 5
+
+# List all available built-in profiles
+gpx-poi-enricher --list-profiles
+```
+
 ### Key options explained
 
 - **`--max-km`** — How far from the track a POI may be to be included. Larger values cast a wider net but produce more results and slower queries.
@@ -143,9 +222,27 @@ options:
 
 ---
 
+## Built-in Profiles
+
+| Profile ID          | Description                                    | Default max_km |
+|---------------------|------------------------------------------------|---------------|
+| `camping`           | Campsite / motorhome stopover                  | 10.0          |
+| `playground`        | Playground                                     | 3.0           |
+| `outdoor_pool`      | Outdoor pool / water park / thermal bath       | 10.0          |
+| `beach`             | Beach / swimming lake                          | 25.0          |
+| `theme_park`        | Theme park / amusement park                    | 10.0          |
+| `zoo`               | Zoo / petting zoo                              | 12.0          |
+| `aquarium`          | Aquarium                                       | 15.0          |
+| `mcdonalds`         | McDonald's restaurants                         | 5.0           |
+| `restaurant`        | Family-friendly restaurant with kids menu      | 5.0           |
+| `kids_activities`   | Kids activities of all kinds                   | 15.0          |
+| `attractions`       | Family-friendly sights, viewpoints, museums    | 20.0          |
+
+---
+
 ## Creating Custom Profiles
 
-A profile is a plain YAML file placed in the `profiles/` directory (or anywhere on a path you point the tool to in future versions). The filename without extension becomes the profile ID.
+A profile is a plain YAML file placed in the `profiles/` directory. The filename without extension becomes the profile ID.
 
 ```yaml
 # profiles/my_profile.yaml
@@ -187,6 +284,15 @@ All fields in `defaults` can be overridden on the command line. The `terms` map 
 
 ## How It Works
 
+### maps-to-gpx
+
+1. **URL expansion** — Short `maps.app.goo.gl` links are resolved by following HTTP redirects.
+2. **Waypoint extraction** — The URL path (`/maps/dir/A/B/C`) or query parameters (`origin`, `waypoints`, `destination`) are parsed. Coordinate waypoints (`48.8566,2.3522`) are used directly; place-name waypoints are geocoded via Nominatim.
+3. **Routing** — Waypoints are sent to the [OSRM](http://router.project-osrm.org/) public routing API, which returns a full road-snapped geometry.
+4. **GPX output** — The routed geometry is written as a `<trk>` element; the user waypoints (start, stopovers, end) are written as `<wpt>` elements.
+
+### gpx-poi-enricher
+
 1. **Track sampling** — The input GPX track is sampled at `sample_km` intervals, producing a list of coordinates.
 2. **Country detection** — Every `country_sample_km` kilometres, the tool calls the [Nominatim](https://nominatim.openstreetmap.org/) reverse-geocoding API to determine the current country code. This allows the profile's search terms to be localised.
 3. **Overpass queries** — Sample points are grouped into batches. For each batch, an [Overpass API](https://overpass-api.de/) query is built from the profile's `tags` and the country-appropriate `terms`. The query fetches all matching OSM nodes and ways within `max_km` of each sample point.
@@ -203,11 +309,14 @@ Map data is sourced from [OpenStreetMap](https://www.openstreetmap.org/) contrib
 
 > © OpenStreetMap contributors
 
-Reverse geocoding is performed by the [Nominatim](https://nominatim.openstreetmap.org/) service, also provided by the OpenStreetMap Foundation.
+Geocoding and reverse geocoding are performed by the [Nominatim](https://nominatim.openstreetmap.org/) service, provided by the OpenStreetMap Foundation.
 
-**Please respect the usage policies of both services:**
+Routing is performed by the [OSRM](http://project-osrm.org/) public demo server, also based on OpenStreetMap data (ODbL).
+
+**Please respect the usage policies of all three services:**
 - Nominatim: maximum 1 request per second; identify your application with a meaningful `User-Agent`.
 - Overpass API: avoid bulk downloads; the tool's default batch and retry settings are chosen to be a considerate citizen of the public infrastructure.
+- OSRM demo server: personal/non-commercial use; attribution required; access may be withdrawn without notice — consider [self-hosting](https://github.com/Project-OSRM/osrm-backend) for production workloads.
 
 ---
 

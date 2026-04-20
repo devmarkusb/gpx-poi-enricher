@@ -2,7 +2,8 @@
 
 1. create a track in Google Maps (start, finish, perhaps a handful of stopovers,
 keep it one-way, even if you intend to go back)
-2. mapstogpx.com
+2. `$ maps-to-gpx "<google-maps-url>" route.gpx [--mode driving|cycling|walking] [--name "My Route"]`
+   (replaces mapstogpx.com — uses OSRM routing + Nominatim geocoding, no API key needed)
 3. add-split-waypoints.py (split into 10 parts, e.g.)
 4. If too large (>5MB), <https://www.gpxtokml.com/> before reimporting to
 Google Maps with <https://www.google.com/mymaps>
