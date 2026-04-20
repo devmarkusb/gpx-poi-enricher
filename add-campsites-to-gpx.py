@@ -6,7 +6,8 @@ Input:
   - GPX file with a track (e.g. split.gpx)
 
 Output:
-  - New GPX file with added <wpt> entries for campsites near the track
+  - New GPX file with <wpt> entries for campsites near the track (no track geometry;
+    input is only used to compute distances along the route)
 
 Data source:
   - OpenStreetMap Overpass API
@@ -316,6 +317,15 @@ def extract_candidates(data, track_points, max_km):
     return list(dedup.values())
 
 
+def remove_tracks_and_routes(root):
+    """Drop <trk> and <rte> so the output file stays small (waypoints only)."""
+    trk_tag = f"{{{GPX_NS}}}trk"
+    rte_tag = f"{{{GPX_NS}}}rte"
+    for child in list(root):
+        if child.tag in (trk_tag, rte_tag):
+            root.remove(child)
+
+
 def add_waypoints_to_gpx(root, items):
     for item in items:
         wpt = ET.Element(f"{{{GPX_NS}}}wpt", lat=f"{item['lat']:.6f}", lon=f"{item['lon']:.6f}")
@@ -410,6 +420,7 @@ def main():
 
     print(f"\nAdding {len(items)} campsite waypoints.")
     add_waypoints_to_gpx(root, items)
+    remove_tracks_and_routes(root)
     tree.write(args.output_gpx, encoding="utf-8", xml_declaration=True)
     print(f"Wrote: {args.output_gpx}")
 

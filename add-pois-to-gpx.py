@@ -8,6 +8,7 @@ Examples:
   python add-pois-to-gpx.py split.gpx zoos.gpx --profile zoo --max-km 15
 
 Notes:
+- Output GPX contains only the found POI waypoints (<wpt>), not the input track (keeps files small).
 - The route is sampled, then representative route points are reverse-geocoded to segment the route
   by country (DE / FR / ES / others) so localized text terms apply per segment.
 - Queries are sent to Overpass in small batches with retries and endpoint fallback.
@@ -533,6 +534,15 @@ def extract_candidates(data, track_points, max_km, profile_id):
     return list(dedup.values())
 
 
+def remove_tracks_and_routes(root):
+    """Drop <trk> and <rte> so the output file stays small (waypoints only)."""
+    trk_tag = f"{{{GPX_NS}}}trk"
+    rte_tag = f"{{{GPX_NS}}}rte"
+    for child in list(root):
+        if child.tag in (trk_tag, rte_tag):
+            root.remove(child)
+
+
 def add_waypoints_to_gpx(root, items, profile_id):
     symbol = SEARCH_PROFILES[profile_id].get("symbol", "Pin")
     pdesc = profile_description(profile_id)
@@ -653,6 +663,7 @@ def main():
 
     print(f"\nAdding {len(items)} waypoints.")
     add_waypoints_to_gpx(root, items, profile_id)
+    remove_tracks_and_routes(root)
     tree.write(args.output_gpx, encoding="utf-8", xml_declaration=True)
     print(f"Wrote: {args.output_gpx}")
 
