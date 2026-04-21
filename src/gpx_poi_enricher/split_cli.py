@@ -69,7 +69,7 @@ def _point_at_distance(points, cum, target):
 
 
 def add_split_waypoints(input_file: str, output_file: str, segments: int = 10) -> None:
-    with open(input_file, "r", encoding="utf-8") as f:
+    with open(input_file, encoding="utf-8") as f:
         gpx = gpxpy.parse(f)
 
     points = _collect_track_points(gpx)
