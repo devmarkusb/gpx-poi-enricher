@@ -226,7 +226,7 @@ def test_terms_for_country_no_duplicate_en_when_only_en_requested():
     """terms_for_country('EN') must not produce duplicate EN entries."""
     profile = _make_profile(terms={"EN": ["campsite", "caravan site"]})
     terms = profile.terms_for_country("EN")
-    assert len(terms) == len(set(t.lower() for t in terms))
+    assert len(terms) == len({t.lower() for t in terms})
 
 
 # ---------------------------------------------------------------------------
