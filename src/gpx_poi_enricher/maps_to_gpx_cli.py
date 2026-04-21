@@ -88,7 +88,7 @@ def parse_waypoints_from_url(url: str) -> list[dict]:
             f"URL does not look like a Google Maps directions link (no '{marker}'): {url!r}"
         )
 
-    after = path[path.index(marker) + len(marker):]
+    after = path[path.index(marker) + len(marker) :]
     parts = [unquote_plus(p) for p in after.split("/") if p]
 
     result: list[dict] = []
