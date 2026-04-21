@@ -14,8 +14,7 @@ import threading
 from typing import Any
 
 import requests
-
-from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication,
@@ -54,7 +53,6 @@ from .maps_to_gpx_cli import (
 )
 from .profiles import load_all_profiles
 from .split_cli import add_split_waypoints
-
 
 # ── Stderr capture ─────────────────────────────────────────────────────────────
 
