@@ -155,7 +155,7 @@ def _append_log(log: QPlainTextEdit, text: str) -> None:
 
 class _EnricherWorker(QThread):
     log_message = pyqtSignal(str)
-    finished = pyqtSignal(list)   # list of POI dicts
+    finished = pyqtSignal(list)  # list of POI dicts
     error = pyqtSignal(str)
 
     def __init__(
