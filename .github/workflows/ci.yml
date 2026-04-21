@@ -37,20 +37,20 @@ jobs:
           fail_ci_if_error: false
 
   lint:
-    name: Lint (ruff)
+    name: Lint (pre-commit)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install ruff
-        run: pip install ruff
+      - name: Install pre-commit
+        run: pip install pre-commit
 
-      - name: Check formatting & lint
-        run: |
-          ruff check src/ tests/
-          ruff format --check src/ tests/
+      - name: Run pre-commit hooks
+        run: pre-commit run --all-files

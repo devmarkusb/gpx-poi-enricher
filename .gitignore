@@ -23,6 +23,7 @@ htmlcov/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.mb-pre-commit-gen/
 
 # Generated output files (GPX/KML) — too large for version control.
 # Commit your input routes but not the auto-generated POI exports.
