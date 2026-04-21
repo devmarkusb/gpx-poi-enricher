@@ -100,6 +100,8 @@ def enrich_track(
     batch_num = 0
     all_candidates: OrderedDict[tuple[float, float], dict[str, Any]] = OrderedDict()
 
+    _early_cancel_batches = 3
+
     def _run_overpass_batches() -> None:
         nonlocal batch_num
         for cc, pts in country_segments.items():
@@ -123,6 +125,19 @@ def enrich_track(
                         all_candidates[key] = item
 
                 progress_state["pois_found"] = len(all_candidates)
+
+                if (
+                    batch_num >= _early_cancel_batches
+                    and len(all_candidates) == 0
+                    and batch_num < total_batches
+                ):
+                    raise RuntimeError(
+                        f"No POIs found after {batch_num} batches — cancelling early.\n"
+                        f"Current search radius: max_km={_max_km}. "
+                        f"Try increasing it (e.g. --max-km {int(_max_km * 2)}) "
+                        f"or switching to a broader profile."
+                    )
+
                 time.sleep(1.0)
 
     if use_progress:
