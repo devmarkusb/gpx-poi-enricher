@@ -76,7 +76,6 @@ pip install gpx-poi-enricher
 ```bash
 git clone https://github.com/devmarkusb/gpx-poi-enricher.git
 cd gpx-poi-enricher
-git submodule update --init --recursive
 pip install -e ".[dev]"
 ./scripts/setup-pre-commit.sh
 ```
@@ -327,7 +326,7 @@ Routing is performed by the [OSRM](http://project-osrm.org/) public demo server,
 ## Contributing
 
 Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
-Run `./scripts/setup-pre-commit.sh` once after cloning to install the shared hooks from `tools/mb-pre-commit`.
+Run `./scripts/setup-pre-commit.sh` once after cloning to install project git hooks.
 
 Bug reports and feature requests can be filed as [GitHub issues](https://github.com/devmarkusb/gpx-poi-enricher/issues).
 

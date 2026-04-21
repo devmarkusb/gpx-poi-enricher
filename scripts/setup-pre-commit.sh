@@ -2,12 +2,16 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+venv_python="$repo_root/.venv/bin/python"
+venv_precommit="$repo_root/.venv/bin/pre-commit"
 
-# Ensure the tooling submodule is available at the pinned revision.
-git -C "$repo_root" submodule update --init --recursive tools/mb-pre-commit
+if [[ ! -x "$venv_python" ]]; then
+  python3 -m venv "$repo_root/.venv"
+fi
 
-exec python3 "$repo_root/tools/mb-pre-commit/python/mb-pre-commit-setup.py" \
-  --project-source-dir "$repo_root" \
-  --project-binary-dir "$repo_root/.mb-pre-commit-gen" \
-  --venv-dir "$repo_root/.venv" \
-  --no-install-example-config
+if ! "$venv_python" -m pip --version >/dev/null 2>&1; then
+  "$venv_python" -m ensurepip --upgrade
+fi
+
+"$venv_python" -m pip install --upgrade pip pre-commit
+exec "$venv_precommit" install --install-hooks

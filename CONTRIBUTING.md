@@ -21,7 +21,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 ```
 
-The `[dev]` extra installs testing and linting dependencies (`pytest`, `ruff`, etc.).
+The `[dev]` extra installs testing and linting dependencies (`pytest`, `ruff`, `pre-commit`, etc.).
 
 ### 3. Install git hooks
 
