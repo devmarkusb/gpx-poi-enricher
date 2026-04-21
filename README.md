@@ -2,7 +2,7 @@
 
 **A three-command toolkit for building POI-enriched GPX files from a Google Maps route.**
 
-[![CI](https://github.com/your-org/gpx-poi-enricher/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/gpx-poi-enricher/actions)
+[![CI](https://github.com/devmarkusb/gpx-poi-enricher/actions/workflows/ci.yml/badge.svg)](https://github.com/devmarkusb/gpx-poi-enricher/actions)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/gpx-poi-enricher.svg)](https://pypi.org/project/gpx-poi-enricher/)
@@ -42,10 +42,12 @@ gpx-split-waypoints   ← adds evenly-spaced split markers (optional, for long r
 gpx-poi-enricher      ← queries OpenStreetMap for POIs along the track
       │
       ▼
- waypoints.gpx        ← import into Garmin / OsmAnd / Google My Maps
+ waypoints.gpx        ← import into Garmin / OsmAnd / Google My Maps <https://www.google.com/mymaps>
 ```
 
 All three commands are installed together and work independently or in sequence.
+In the end, if the result file is too large (>5MB) for your consumer app, <https://www.gpxtokml.com/>
+helps a lot.
 
 ---
 
@@ -72,7 +74,7 @@ pip install gpx-poi-enricher
 ### From source (development)
 
 ```bash
-git clone https://github.com/your-org/gpx-poi-enricher.git
+git clone https://github.com/devmarkusb/gpx-poi-enricher.git
 cd gpx-poi-enricher
 pip install -e ".[dev]"
 ```
@@ -324,7 +326,7 @@ Routing is performed by the [OSRM](http://project-osrm.org/) public demo server,
 
 Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
-Bug reports and feature requests can be filed as [GitHub issues](https://github.com/your-org/gpx-poi-enricher/issues).
+Bug reports and feature requests can be filed as [GitHub issues](https://github.com/devmarkusb/gpx-poi-enricher/issues).
 
 ---
 

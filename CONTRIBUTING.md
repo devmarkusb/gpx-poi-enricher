@@ -9,7 +9,7 @@ Thank you for your interest in contributing. This document covers everything you
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-org/gpx-poi-enricher.git
+git clone https://github.com/devmarkusb/gpx-poi-enricher.git
 cd gpx-poi-enricher
 ```
 
@@ -88,7 +88,7 @@ If you are running the tool repeatedly during development on the same route, con
 
 ## Reporting Bugs
 
-Please open a [GitHub issue](https://github.com/your-org/gpx-poi-enricher/issues) and include:
+Please open a [GitHub issue](https://github.com/devmarkusb/gpx-poi-enricher/issues) and include:
 
 1. The command you ran (sanitise any personal path information if needed).
 2. The full error output (including the traceback if applicable).

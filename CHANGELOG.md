@@ -23,5 +23,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ProgressHeartbeat` utility that prints periodic progress lines to stderr during long-running Overpass query batches.
 - Comprehensive test suite covering profile loading, GPX parsing, Overpass query generation, and the CLI argument parser.
 
-[Unreleased]: https://github.com/your-org/gpx-poi-enricher/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/your-org/gpx-poi-enricher/releases/tag/v0.1.0
+[Unreleased]: https://github.com/devmarkusb/gpx-poi-enricher/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/devmarkusb/gpx-poi-enricher/releases/tag/v0.1.0
