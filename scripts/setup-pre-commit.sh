@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tool_repo_url="https://github.com/devmarkusb/pre-commit.git"
-tool_ref="${MB_PRE_COMMIT_REF:-f2ea45f}"
+tool_ref="${MB_PRE_COMMIT_REF:-v2.0.0}"
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
