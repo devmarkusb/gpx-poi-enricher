@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pathlib
 import sys
+import threading
 import time
 from collections import OrderedDict
 from typing import Any
@@ -38,6 +39,7 @@ def enrich_track(
     progress_interval: float = 5.0,
     verbose: bool = False,
     http_session: requests.Session | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> list[dict[str, Any]]:
     """Enrich a list of track points with nearby POIs from OpenStreetMap.
 
@@ -139,6 +141,8 @@ def enrich_track(
                     )
 
                 time.sleep(1.0)
+                if cancel_event is not None and cancel_event.is_set():
+                    raise RuntimeError("Operation cancelled by user.")
 
     if use_progress:
         with ProgressHeartbeat(progress_state, interval=progress_interval):
@@ -155,7 +159,7 @@ def enrich_gpx_file(
     profile_id: str,
     profiles_dir: pathlib.Path | None = None,
     **kwargs: Any,
-) -> int:
+) -> list[dict[str, Any]]:
     """High-level convenience function: load GPX, enrich, write output GPX.
 
     Args:
@@ -166,7 +170,7 @@ def enrich_gpx_file(
         **kwargs: Forwarded to :func:`enrich_track`.
 
     Returns:
-        The number of POI waypoints written.
+        The list of POI dicts written as waypoints.
     """
     profile = load_profile(profile_id, profiles_dir)
     tree, root, track_points = parse_gpx_trackpoints(str(input_path))
@@ -178,4 +182,4 @@ def enrich_gpx_file(
     tree.write(str(output_path), encoding="utf-8", xml_declaration=True)
     print(f"Wrote: {output_path}", file=sys.stderr)
 
-    return len(items)
+    return items

@@ -33,8 +33,12 @@ dependencies = [
 gpx-poi-enricher = "gpx_poi_enricher.cli:main"
 gpx-split-waypoints = "gpx_poi_enricher.split_cli:main"
 maps-to-gpx = "gpx_poi_enricher.maps_to_gpx_cli:main"
+gpx-poi-enricher-gui = "gpx_poi_enricher.gui:main"
 
 [project.optional-dependencies]
+gui = [
+    "PyQt6>=6.4",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",

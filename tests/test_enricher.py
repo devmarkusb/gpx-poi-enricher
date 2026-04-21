@@ -331,7 +331,7 @@ def test_enrich_gpx_file_contains_waypoints_when_pois_found(
             progress_interval=0,
         )
 
-    assert count >= 1, "At least one waypoint must be added for the nearby POI"
+    assert len(count) >= 1, "At least one waypoint must be added for the nearby POI"
     tree = ET.parse(str(output_path))
     root = tree.getroot()
     wpts = root.findall(f"{{{GPX_NS}}}wpt")
@@ -358,8 +358,8 @@ def test_enrich_gpx_file_returns_waypoint_count(sample_gpx_path, tmp_path, profi
             progress_interval=0,
         )
 
-    assert isinstance(count, int)
-    assert count >= 0
+    assert isinstance(count, list)
+    assert len(count) >= 0
 
 
 @resp_lib.activate
@@ -398,7 +398,7 @@ def test_enrich_gpx_file_waypoint_names_in_output(sample_gpx_path, tmp_path, pro
             progress_interval=0,
         )
 
-    if count > 0:
+    if count:
         tree = ET.parse(str(output_path))
         root = tree.getroot()
         names = [
