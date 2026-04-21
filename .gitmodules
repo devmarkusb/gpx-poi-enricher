@@ -1,0 +1,3 @@
+[submodule "tools/mb-pre-commit"]
+	path = tools/mb-pre-commit
+	url = https://github.com/devmarkusb/pre-commit.git

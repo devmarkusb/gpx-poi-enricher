@@ -23,7 +23,13 @@ pip install -e ".[dev]"
 
 The `[dev]` extra installs testing and linting dependencies (`pytest`, `ruff`, etc.).
 
-### 3. Run the test suite
+### 3. Install git hooks
+
+```bash
+./scripts/setup-pre-commit.sh
+```
+
+### 4. Run the test suite
 
 ```bash
 pytest
@@ -31,16 +37,10 @@ pytest
 
 All tests must pass before submitting a pull request.
 
-### 4. Run the linter
+### 5. Run linters/format checks
 
 ```bash
-ruff check src/ tests/
-```
-
-The codebase must be free of `ruff` warnings. To auto-fix safe issues:
-
-```bash
-ruff check --fix src/ tests/
+pre-commit run --all-files
 ```
 
 ---
@@ -69,7 +69,7 @@ Please add at least one test that loads the new profile and checks that the expe
 
 - **Describe what and why** — the PR description should explain the motivation and summarise the changes. A title like "Add aquapark profile" is fine; "fix stuff" is not.
 - **Tests are required** — new features and bug fixes must include tests. The CI will reject PRs that reduce overall coverage without justification.
-- **ruff must be clean** — run `ruff check src/ tests/` locally and fix all warnings before pushing.
+- **pre-commit must pass** — run `pre-commit run --all-files` locally and fix all reported issues before pushing.
 - **One concern per PR** — keep PRs focused. If you want to fix a bug and add a feature, open two separate PRs.
 - **Commit messages** — use the imperative mood and keep the first line under 72 characters (e.g. `Add kids_activities profile`).
 
