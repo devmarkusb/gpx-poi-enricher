@@ -326,7 +326,7 @@ Routing is performed by the [OSRM](http://project-osrm.org/) public demo server,
 ## Contributing
 
 Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
-Run `./scripts/setup-pre-commit.sh` once after cloning to install project git hooks.
+Run `./scripts/setup-pre-commit.sh` once after cloning to bootstrap git hooks via `devmarkusb/pre-commit` (no submodule required).
 
 Bug reports and feature requests can be filed as [GitHub issues](https://github.com/devmarkusb/gpx-poi-enricher/issues).
 

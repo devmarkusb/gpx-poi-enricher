@@ -29,6 +29,8 @@ The `[dev]` extra installs testing and linting dependencies (`pytest`, `ruff`, `
 ./scripts/setup-pre-commit.sh
 ```
 
+This bootstraps hooks using `devmarkusb/pre-commit` in one-shot mode (without adding a submodule).
+
 ### 4. Run the test suite
 
 ```bash
