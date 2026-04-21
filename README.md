@@ -15,6 +15,7 @@
 - [Features](#features)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [GUI](#gui)
 - [Command: maps-to-gpx](#command-maps-to-gpx)
 - [Command: gpx-split-waypoints](#command-gpx-split-waypoints)
 - [Command: gpx-poi-enricher](#command-gpx-poi-enricher)
@@ -62,6 +63,8 @@ helps a lot.
 - **`gpx-poi-enricher`**: enrich any GPX track with Points of Interest from
   OpenStreetMap. 11 ready-to-use profiles covering camping, beaches,
   playgrounds, theme parks, restaurants, and more.
+- **GUI**: a full desktop application (`gpx-poi-enricher-gui`) covering all
+  three tools in a single window — no command line required.
 - Country-aware search terms: automatically detects which country each section
   of the route passes through and queries in the local language
   (`DE`, `FR`, `ES`, `EN`).
@@ -76,7 +79,8 @@ helps a lot.
 ### From PyPI (recommended)
 
 ```bash
-pip install gpx-poi-enricher
+pip install gpx-poi-enricher          # CLI tools only
+pip install "gpx-poi-enricher[gui]"   # CLI tools + desktop GUI (requires PyQt6)
 ```
 
 ### From source (development)
@@ -84,7 +88,7 @@ pip install gpx-poi-enricher
 ```bash
 git clone https://github.com/devmarkusb/gpx-poi-enricher.git
 cd gpx-poi-enricher
-pip install -e ".[dev]"
+pip install -e ".[dev,gui]"
 ./scripts/setup-pre-commit.sh
 ```
 
@@ -104,6 +108,28 @@ gpx-split-waypoints route.gpx route-split.gpx 10
 # Step 3: find all campsites within 10 km of the route
 gpx-poi-enricher route.gpx camping.gpx --profile camping
 ```
+
+---
+
+## GUI
+
+A desktop application that wraps all three CLI tools in a single window.
+
+```bash
+gpx-poi-enricher-gui
+```
+
+Requires the `gui` extra (`pip install "gpx-poi-enricher[gui]"`).
+
+The window has three tabs:
+
+| Tab | What it does |
+| :-- | :----------- |
+| **POI Enricher** | Select input/output GPX, choose a profile, tweak parameters, run enrichment. A live log shows progress; a results table lists every POI found. A Cancel button stops after the current Overpass batch. |
+| **Split Waypoints** | Add evenly-spaced split markers to a GPX track. |
+| **Maps → GPX** | Paste a Google Maps directions URL, pick a transport mode, and convert it to a routed GPX file. |
+
+All long-running operations run in a background thread so the UI stays responsive.
 
 ---
 
