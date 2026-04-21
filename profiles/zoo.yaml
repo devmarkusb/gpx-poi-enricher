@@ -1,5 +1,5 @@
 id: zoo
-description: "Zoo, Streichelzoo"
+description: "Zoo, Petting Zoo"
 symbol: Zoo
 defaults:
   max_km: 12.0

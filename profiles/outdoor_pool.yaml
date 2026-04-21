@@ -1,5 +1,5 @@
 id: outdoor_pool
-description: "Freibad, Erlebnisbad, Thermalbad"
+description: "Outdoor Pool, Adventure Pool, Thermal Bath"
 symbol: Swimming Area
 defaults:
   max_km: 10.0

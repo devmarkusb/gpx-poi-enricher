@@ -1,5 +1,5 @@
 id: beach
-description: "Badesee, Strand"
+description: "Swimming Lake, Beach"
 symbol: Beach
 defaults:
   max_km: 20.0

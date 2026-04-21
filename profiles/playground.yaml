@@ -1,5 +1,5 @@
 id: playground
-description: "Spielplatz"
+description: "Playground"
 symbol: Playground
 defaults:
   max_km: 3.0

@@ -1,5 +1,5 @@
 id: restaurant
-description: "Restaurant mit Kinderkarte"
+description: "Restaurant with Kids Menu"
 symbol: Restaurant
 defaults:
   max_km: 5.0

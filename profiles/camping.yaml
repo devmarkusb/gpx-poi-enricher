@@ -1,5 +1,5 @@
 id: camping
-description: "Campingplatz"
+description: "Campsite"
 symbol: Campground
 defaults:
   max_km: 10.0

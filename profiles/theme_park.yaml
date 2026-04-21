@@ -1,5 +1,5 @@
 id: theme_park
-description: "Freizeitpark"
+description: "Theme Park"
 symbol: Amusement Park
 defaults:
   max_km: 12.0

@@ -1,5 +1,5 @@
 id: attractions
-description: "allgemein spektakuläre kindertaugliche Sehenswürdigkeit"
+description: "Generally spectacular child-friendly attraction"
 symbol: Scenic Area
 defaults:
   max_km: 10.0
