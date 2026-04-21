@@ -2,7 +2,7 @@ id: attractions
 description: "allgemein spektakuläre kindertaugliche Sehenswürdigkeit"
 symbol: Scenic Area
 defaults:
-  max_km: 20.0
+  max_km: 10.0
   sample_km: 10.0
   batch_size: 3
   retries: 3

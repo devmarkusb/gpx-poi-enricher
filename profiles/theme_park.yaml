@@ -2,8 +2,8 @@ id: theme_park
 description: "Freizeitpark"
 symbol: Amusement Park
 defaults:
-  max_km: 10.0
-  sample_km: 5.0
+  max_km: 12.0
+  sample_km: 6.0
   batch_size: 3
   retries: 2
 tags:

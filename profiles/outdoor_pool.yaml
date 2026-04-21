@@ -3,7 +3,7 @@ description: "Freibad, Erlebnisbad, Thermalbad"
 symbol: Swimming Area
 defaults:
   max_km: 10.0
-  sample_km: 5.0
+  sample_km: 15.0
   batch_size: 4
   retries: 2
 tags:

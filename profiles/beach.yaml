@@ -2,8 +2,8 @@ id: beach
 description: "Badesee, Strand"
 symbol: Beach
 defaults:
-  max_km: 25.0
-  sample_km: 12.0
+  max_km: 20.0
+  sample_km: 10.0
   batch_size: 4
   retries: 2
 tags:
