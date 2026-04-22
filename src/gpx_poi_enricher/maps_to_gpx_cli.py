@@ -11,14 +11,21 @@ Handles:
 from __future__ import annotations
 
 import argparse
+import functools
 import re
 import sys
 import time
+import unicodedata
 from urllib.parse import parse_qs, unquote_plus, urlparse
 
 import gpxpy
 import gpxpy.gpx
 import requests
+
+try:
+    from babel import Locale
+except ImportError:  # pragma: no cover - optional dependency in some environments
+    Locale = None
 
 USER_AGENT = "gpx-poi-enricher/0.1 (https://github.com/devmarkusb/gpx-poi-enricher)"
 
@@ -28,6 +35,61 @@ OSRM_BASE_URL = "http://router.project-osrm.org/route/v1"
 
 # Matches "lat,lon" like "48.8566,2.3522" or "-33.8688,151.2093"
 _COORD_RE = re.compile(r"^-?\d+\.?\d*,-?\d+\.?\d*$")
+_ADMIN_PREFIX_RE = re.compile(
+    r"^(?:province|provinz|provincia|província|prov\.?|region|région|región|county|state)\s+(?:de\s+)?",
+    re.IGNORECASE,
+)
+_FALLBACK_COUNTRY_ALIASES = {
+    "allemagne": "Germany",
+    "alemania": "Germany",
+    "deutschland": "Germany",
+    "espagne": "Spain",
+    "espana": "Spain",
+    "espanha": "Spain",
+    "spanien": "Spain",
+    "francia": "France",
+    "france": "France",
+    "frankreich": "France",
+    "germany": "Germany",
+    "italia": "Italy",
+    "italien": "Italy",
+    "nederland": "Netherlands",
+    "niederlande": "Netherlands",
+    "paesi bassi": "Netherlands",
+    "paises bajos": "Netherlands",
+    "pays bas": "Netherlands",
+    "portogallo": "Portugal",
+    "portugal": "Portugal",
+    "spane": "Spain",
+    "spain": "Spain",
+}
+
+
+def _normalize_lookup_key(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value)
+    ascii_only = normalized.encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"\s+", " ", ascii_only).strip().casefold()
+
+
+@functools.lru_cache(maxsize=1)
+def _country_aliases() -> dict[str, str]:
+    aliases = dict(_FALLBACK_COUNTRY_ALIASES)
+    if Locale is None:
+        return aliases
+
+    english_territories = Locale.parse("en").territories
+    for locale_id in ("en", "de", "es", "ca", "fr", "it", "nl", "pt"):
+        for territory_code, territory_name in Locale.parse(locale_id).territories.items():
+            if len(territory_code) != 2 or not territory_code.isalpha():
+                continue
+            english_name = english_territories.get(territory_code)
+            if english_name:
+                aliases[_normalize_lookup_key(territory_name)] = english_name
+    return aliases
+
+
+def _normalize_country_name(value: str) -> str:
+    return _country_aliases().get(_normalize_lookup_key(value), value)
 
 
 def _expand_url(url: str, session: requests.Session) -> str:
@@ -47,6 +109,38 @@ def _is_coordinate(s: str) -> bool:
 def _parse_coord(s: str) -> tuple[float, float]:
     lat, lon = s.split(",")
     return float(lat), float(lon)
+
+
+def _build_geocode_queries(name: str) -> list[str]:
+    """Build a small set of fallback geocoding queries for localized place strings."""
+    candidates: list[str] = [name]
+    parts = [p.strip() for p in name.split(",") if p.strip()]
+    if not parts:
+        return candidates
+
+    cleaned_parts = [_ADMIN_PREFIX_RE.sub("", p).strip() for p in parts]
+    if cleaned_parts:
+        cleaned_parts[-1] = _normalize_country_name(cleaned_parts[-1])
+    cleaned = ", ".join(cleaned_parts)
+    if cleaned and cleaned != name:
+        candidates.append(cleaned)
+
+    if len(cleaned_parts) >= 2:
+        no_country = ", ".join(cleaned_parts[:-1])
+        if no_country:
+            candidates.append(no_country)
+        city_country = f"{cleaned_parts[0]}, {cleaned_parts[-1]}"
+        candidates.append(city_country)
+        candidates.append(cleaned_parts[0])
+
+    # Keep order stable while removing duplicates.
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for cand in candidates:
+        if cand not in seen:
+            seen.add(cand)
+            deduped.append(cand)
+    return deduped
 
 
 def parse_waypoints_from_url(url: str) -> list[dict]:
@@ -93,8 +187,10 @@ def parse_waypoints_from_url(url: str) -> list[dict]:
 
     result: list[dict] = []
     for part in parts:
-        if part.startswith("@"):  # map view anchor, e.g. @48.8566,2.3522,10z
-            continue
+        if part.startswith("@") or part.startswith(
+            "data="
+        ):  # map anchor / metadata mark end of waypoints
+            break
         if _is_coordinate(part):
             result.append({"coord": _parse_coord(part)})
         else:
@@ -104,14 +200,19 @@ def parse_waypoints_from_url(url: str) -> list[dict]:
 
 def _geocode(name: str, session: requests.Session) -> tuple[float, float]:
     """Forward-geocode a place name via Nominatim. Returns (lat, lon)."""
-    params = {"q": name, "format": "jsonv2", "limit": 1}
     headers = {"User-Agent": USER_AGENT}
-    r = session.get(NOMINATIM_SEARCH_URL, params=params, headers=headers, timeout=30)
-    r.raise_for_status()
-    results = r.json()
-    if not results:
-        raise ValueError(f"Nominatim could not geocode: {name!r}")
-    return float(results[0]["lat"]), float(results[0]["lon"])
+    queries = _build_geocode_queries(name)
+    for i, query in enumerate(queries):
+        if i > 0:
+            time.sleep(1.1)  # honour Nominatim 1 req/s policy for retries
+        params = {"q": query, "format": "jsonv2", "limit": 1}
+        r = session.get(NOMINATIM_SEARCH_URL, params=params, headers=headers, timeout=30)
+        r.raise_for_status()
+        results = r.json()
+        if results:
+            return float(results[0]["lat"]), float(results[0]["lon"])
+
+    raise ValueError(f"Nominatim could not geocode: {name!r}")
 
 
 def _resolve_waypoints(
