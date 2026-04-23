@@ -76,15 +76,16 @@ def add_split_waypoints(input_file: str, output_file: str, segments: int = 10) -
     cum = _cumulative_lengths(points)
     total = cum[-1]
 
+    out_gpx = gpxpy.gpx.GPX()
     for i in range(1, segments):
         frac = i / segments
         wpt = _point_at_distance(points, cum, total * frac)
         wpt.name = f"Split {i}"
         wpt.description = f"{frac * 100:.1f}% of track length"
-        gpx.waypoints.append(wpt)
+        out_gpx.waypoints.append(wpt)
 
     with open(output_file, "w", encoding="utf-8") as f:
-        f.write(gpx.to_xml())
+        f.write(out_gpx.to_xml())
 
 
 def main() -> None:
