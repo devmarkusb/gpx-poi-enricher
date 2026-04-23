@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.chaquopy)
 }
 
 android {
@@ -13,6 +14,20 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+
+        python {
+            version = "3.11"
+            pip {
+                install("requests>=2.28")
+                install("gpxpy>=1.6")
+                install("PyYAML>=6.0")
+                install("babel")
+            }
+        }
     }
 
     buildTypes {
@@ -21,6 +36,7 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
@@ -31,7 +47,24 @@ android {
     buildFeatures {
         viewBinding = true
     }
+
+    sourceSets {
+        named("main") {
+            // Include the Python package source directly — zero code duplication
+            python.srcDir("../../src")
+            // Bundle the original YAML profiles (synced by task below)
+            assets.srcDirs("src/main/assets")
+        }
+    }
 }
+
+// Sync original YAML profiles into assets before every build — single source of truth
+tasks.register<Copy>("syncProfileAssets") {
+    from("../../profiles")
+    into("src/main/assets/profiles")
+    include("*.yaml")
+}
+tasks.named("preBuild") { dependsOn("syncProfileAssets") }
 
 dependencies {
     implementation(libs.androidx.core.ktx)
@@ -44,6 +77,4 @@ dependencies {
     implementation(libs.navigation.fragment.ktx)
     implementation(libs.navigation.ui.ktx)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.okhttp)
-    implementation(libs.gson)
 }

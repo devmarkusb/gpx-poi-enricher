@@ -7,15 +7,16 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
+import com.chaquo.python.Python
+import com.gpxpoienricher.LogCallback
 import kotlinx.coroutines.CancellationException
-import com.gpxpoienricher.core.GpxWriter
-import com.gpxpoienricher.core.MapsToGpx
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 class MapsToGpxViewModel(app: Application) : AndroidViewModel(app) {
-
-    private val mapsToGpx = MapsToGpx()
 
     private val _outputUri = MutableLiveData<Uri?>()
     val outputUri: LiveData<Uri?> = _outputUri
@@ -34,56 +35,53 @@ class MapsToGpxViewModel(app: Application) : AndroidViewModel(app) {
 
     private var job: Job? = null
 
-    fun setOutputFile(uri: Uri) {
-        _outputUri.value = uri
-        _outputName.value = getFileName(uri)
-    }
+    fun setOutputFile(uri: Uri) { _outputUri.value = uri; _outputName.value = fileName(uri) }
 
     fun run(url: String, mode: String, trackName: String) {
-        if (url.isBlank()) { _snackbar.value = "Enter a Google Maps URL first"; return }
-        val outputUri = _outputUri.value ?: run { _snackbar.value = "Select an output file first"; return }
+        if (url.isBlank()) { _snackbar.value = "Enter a Google Maps URL"; return }
+        val outputUri = _outputUri.value ?: run { _snackbar.value = "Select an output file"; return }
 
         job = viewModelScope.launch {
             _isRunning.value = true
             val logs = mutableListOf<String>()
             _logLines.value = logs
 
-            fun log(msg: String) {
-                logs.add(msg)
-                _logLines.value = logs.toMutableList()
-            }
+            fun log(msg: String) { logs.add(msg); _logLines.postValue(ArrayList(logs)) }
 
             try {
-                val result = mapsToGpx.convert(url.trim(), mode, onLog = ::log)
-                log("Writing GPX...")
-                getApplication<Application>().contentResolver
-                    .openOutputStream(outputUri)!!.use { stream ->
-                        GpxWriter.writeMapsRoute(result.trackPoints, result.waypoints, trackName, stream)
+                withContext(Dispatchers.IO) {
+                    val ctx = getApplication<Application>()
+                    val outTmp = File.createTempFile("gpx_out", ".gpx", ctx.cacheDir)
+                    try {
+                        Python.getInstance().getModule("gpx_bridge").callAttr(
+                            "maps_to_gpx",
+                            url.trim(), outTmp.absolutePath, mode, trackName,
+                            LogCallback(::log)
+                        )
+                        ctx.contentResolver.openOutputStream(outputUri)!!.use { outTmp.inputStream().copyTo(it) }
+                        log("Done!")
+                        _snackbar.postValue("Saved to output file.")
+                    } finally {
+                        outTmp.delete()
                     }
-                log("Done! ${result.trackPoints.size} track points, ${result.waypoints.size} waypoints.")
-                _snackbar.value = "Done! Saved to output file."
+                }
             } catch (e: CancellationException) {
                 log("Cancelled.")
             } catch (e: Exception) {
                 log("ERROR: ${e.message}")
-                _snackbar.value = "Error: ${e.message}"
+                _snackbar.postValue("Error: ${e.message}")
             } finally {
                 _isRunning.value = false
             }
         }
     }
 
-    fun cancel() {
-        job?.cancel()
-    }
-
+    fun cancel() { job?.cancel() }
     fun clearSnackbar() { _snackbar.value = null }
 
-    private fun getFileName(uri: Uri): String? {
-        return getApplication<Application>().contentResolver
-            .query(uri, null, null, null, null)?.use { cursor ->
-                val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
-            }
-    }
+    private fun fileName(uri: Uri): String? =
+        getApplication<Application>().contentResolver.query(uri, null, null, null, null)?.use {
+            val idx = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (it.moveToFirst() && idx >= 0) it.getString(idx) else null
+        }
 }
