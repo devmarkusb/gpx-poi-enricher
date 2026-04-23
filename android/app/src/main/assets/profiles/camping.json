@@ -1,0 +1,16 @@
+{
+  "id": "camping",
+  "description": "Campsite",
+  "symbol": "Campground",
+  "defaults": { "max_km": 10.0, "sample_km": 5.0, "batch_size": 6, "retries": 3 },
+  "tags": [
+    {"key": "tourism", "value": "camp_site"},
+    {"key": "tourism", "value": "caravan_site"}
+  ],
+  "terms": {
+    "DE": ["Campingplatz", "Wohnmobilstellplatz"],
+    "FR": ["camping", "aire de camping-car"],
+    "ES": ["camping", "área de autocaravanas"],
+    "EN": ["camping", "motorhome stopover", "caravan site"]
+  }
+}

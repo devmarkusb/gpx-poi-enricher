@@ -1,0 +1,10 @@
+{
+  "id": "playground",
+  "description": "Playground",
+  "symbol": "Playground",
+  "defaults": { "max_km": 3.0, "sample_km": 5.0, "batch_size": 6, "retries": 2 },
+  "tags": [
+    {"key": "leisure", "value": "playground"}
+  ],
+  "terms": {}
+}

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@+id/nav_enricher"
+        android:icon="@drawable/ic_poi"
+        android:title="@string/tab_enricher" />
+
+    <item
+        android:id="@+id/nav_split"
+        android:icon="@drawable/ic_split"
+        android:title="@string/tab_split" />
+
+    <item
+        android:id="@+id/nav_maps"
+        android:icon="@drawable/ic_map"
+        android:title="@string/tab_maps" />
+
+</menu>
