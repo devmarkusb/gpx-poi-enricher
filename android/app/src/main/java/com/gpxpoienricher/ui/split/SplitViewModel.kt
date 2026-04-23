@@ -7,14 +7,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
+import com.chaquo.python.Python
+import com.gpxpoienricher.LogCallback
 import kotlinx.coroutines.CancellationException
-import com.gpxpoienricher.core.GpxParser
-import com.gpxpoienricher.core.GpxWriter
-import com.gpxpoienricher.core.Splitter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class SplitViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -41,69 +41,59 @@ class SplitViewModel(app: Application) : AndroidViewModel(app) {
 
     private var job: Job? = null
 
-    fun setInputFile(uri: Uri) {
-        _inputUri.value = uri
-        _inputName.value = getFileName(uri)
-    }
-
-    fun setOutputFile(uri: Uri) {
-        _outputUri.value = uri
-        _outputName.value = getFileName(uri)
-    }
+    fun setInputFile(uri: Uri) { _inputUri.value = uri; _inputName.value = fileName(uri) }
+    fun setOutputFile(uri: Uri) { _outputUri.value = uri; _outputName.value = fileName(uri) }
 
     fun run(segments: Int) {
-        val inputUri = _inputUri.value ?: run { _snackbar.value = "Select an input GPX file first"; return }
-        val outputUri = _outputUri.value ?: run { _snackbar.value = "Select an output file first"; return }
         if (segments < 2) { _snackbar.value = "Segments must be at least 2"; return }
+        val inputUri = _inputUri.value ?: run { _snackbar.value = "Select an input GPX file"; return }
+        val outputUri = _outputUri.value ?: run { _snackbar.value = "Select an output file"; return }
 
         job = viewModelScope.launch {
             _isRunning.value = true
             val logs = mutableListOf<String>()
             _logLines.value = logs
 
-            fun log(msg: String) {
-                logs.add(msg)
-                _logLines.value = logs.toMutableList()
-            }
+            fun log(msg: String) { logs.add(msg); _logLines.postValue(ArrayList(logs)) }
 
             try {
-                log("Reading input GPX...")
-                val trackPoints = withContext(Dispatchers.IO) {
-                    getApplication<Application>().contentResolver
-                        .openInputStream(inputUri)!!.use { GpxParser.parseTrackPointsFull(it) }
-                }
-                log("Loaded ${trackPoints.size} track points.")
-                log("Splitting into $segments segments (${segments - 1} waypoints)...")
-                val waypoints = withContext(Dispatchers.IO) { Splitter.split(trackPoints, segments) }
-                log("Writing output GPX...")
                 withContext(Dispatchers.IO) {
-                    getApplication<Application>().contentResolver
-                        .openOutputStream(outputUri)!!.use { GpxWriter.writeSplitWaypoints(waypoints, it) }
+                    val ctx = getApplication<Application>()
+                    val inTmp = File.createTempFile("gpx_in", ".gpx", ctx.cacheDir)
+                    val outTmp = File.createTempFile("gpx_out", ".gpx", ctx.cacheDir)
+                    try {
+                        ctx.contentResolver.openInputStream(inputUri)!!.use { it.copyTo(inTmp.outputStream()) }
+
+                        Python.getInstance().getModule("gpx_bridge").callAttr(
+                            "split",
+                            inTmp.absolutePath, outTmp.absolutePath,
+                            segments, LogCallback(::log)
+                        )
+
+                        ctx.contentResolver.openOutputStream(outputUri)!!.use { outTmp.inputStream().copyTo(it) }
+                        log("Done! Wrote ${segments - 1} split waypoints.")
+                        _snackbar.postValue("Done!")
+                    } finally {
+                        inTmp.delete(); outTmp.delete()
+                    }
                 }
-                log("Done! Wrote ${waypoints.size} split waypoints.")
-                _snackbar.value = "Done! Wrote ${waypoints.size} waypoints."
             } catch (e: CancellationException) {
                 log("Cancelled.")
             } catch (e: Exception) {
                 log("ERROR: ${e.message}")
-                _snackbar.value = "Error: ${e.message}"
+                _snackbar.postValue("Error: ${e.message}")
             } finally {
                 _isRunning.value = false
             }
         }
     }
 
-    fun cancel() {
-        job?.cancel()
-    }
-
+    fun cancel() { job?.cancel() }
     fun clearSnackbar() { _snackbar.value = null }
 
-    private fun getFileName(uri: Uri): String? {
-        return getApplication<Application>().contentResolver
-            .query(uri, null, null, null, null)?.use { cursor ->
-                val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
-            }
-    }
+    private fun fileName(uri: Uri): String? =
+        getApplication<Application>().contentResolver.query(uri, null, null, null, null)?.use {
+            val idx = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (it.moveToFirst() && idx >= 0) it.getString(idx) else null
+        }
 }
