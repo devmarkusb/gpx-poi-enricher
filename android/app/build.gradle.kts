@@ -18,16 +18,6 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
-
-        python {
-            version = "3.11"
-            pip {
-                install("requests>=2.28")
-                install("gpxpy>=1.6")
-                install("PyYAML>=6.0")
-                install("babel")
-            }
-        }
     }
 
     buildTypes {
@@ -50,10 +40,24 @@ android {
 
     sourceSets {
         named("main") {
-            // Include the Python package source directly — zero code duplication
-            python.srcDir("../../src")
-            // Bundle the original YAML profiles (synced by task below)
             assets.srcDirs("src/main/assets")
+        }
+    }
+}
+
+chaquopy {
+    defaultConfig {
+        version = "3.11"
+        pip {
+            install("requests>=2.28")
+            install("gpxpy>=1.6")
+            install("PyYAML>=6.0")
+            install("babel")
+        }
+    }
+    sourceSets {
+        getByName("main") {
+            srcDir("../../src")
         }
     }
 }

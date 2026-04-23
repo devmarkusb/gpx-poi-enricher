@@ -1,0 +1,6 @@
+.gradle/
+.idea/
+build/
+local.properties
+gradle/wrapper/gradle-wrapper.jar
+app/src/main/assets/profiles/
