@@ -1,0 +1,11 @@
+{
+  "id": "mcdonalds",
+  "description": "McDonalds",
+  "symbol": "Fast Food",
+  "defaults": { "max_km": 5.0, "sample_km": 10.0, "batch_size": 10, "retries": 2 },
+  "tags": [
+    {"key": "amenity", "value": "fast_food", "and": [{"key": "brand", "value": "McDonald's"}]},
+    {"key": "brand:wikidata", "value": "Q38076"}
+  ],
+  "terms": {}
+}

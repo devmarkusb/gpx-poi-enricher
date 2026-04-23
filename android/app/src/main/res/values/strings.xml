@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GPX POI Enricher</string>
+
+    <!-- Tab labels -->
+    <string name="tab_enricher">POI Enricher</string>
+    <string name="tab_split">Split Waypoints</string>
+    <string name="tab_maps">Maps → GPX</string>
+
+    <!-- Labels -->
+    <string name="label_input_gpx">Input GPX File (with track)</string>
+    <string name="label_output_gpx">Output GPX File</string>
+    <string name="label_profile">Search Profile</string>
+    <string name="label_overrides">Optional Overrides (leave blank to use profile defaults)</string>
+    <string name="label_transport_mode">Transport Mode</string>
+
+    <!-- Hints -->
+    <string name="hint_max_km">Max radius (km)</string>
+    <string name="hint_sample_km">Sample spacing (km)</string>
+    <string name="hint_segments">Number of segments (min 2)</string>
+    <string name="hint_maps_url">Google Maps directions URL</string>
+    <string name="hint_track_name">Track name in GPX</string>
+
+    <!-- Buttons -->
+    <string name="btn_browse">Browse…</string>
+    <string name="btn_save_as">Save As…</string>
+    <string name="btn_run">Run</string>
+    <string name="btn_cancel">Cancel</string>
+    <string name="btn_convert">Convert</string>
+
+    <!-- Modes -->
+    <string name="mode_driving">Driving</string>
+    <string name="mode_cycling">Cycling</string>
+    <string name="mode_walking">Walking</string>
+
+    <!-- Misc -->
+    <string name="no_file_selected">No file selected</string>
+</resources>
