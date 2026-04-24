@@ -131,6 +131,6 @@ def add_waypoints_to_gpx(
         ET.SubElement(wpt, f"{{{GPX_NS}}}type").text = type_label
         ET.SubElement(
             wpt, f"{{{GPX_NS}}}desc"
-        ).text = f"{item['kind']}; approx {item['distance_km']:.1f} km from track"
+        ).text = f"approx {item['distance_km']:.1f} km from track"
         ET.SubElement(wpt, f"{{{GPX_NS}}}sym").text = symbol
         root.append(wpt)

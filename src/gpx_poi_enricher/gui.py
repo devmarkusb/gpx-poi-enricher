@@ -9,6 +9,8 @@ or:
 
 from __future__ import annotations
 
+import pathlib
+import re
 import sys
 import threading
 from typing import Any
@@ -18,6 +20,7 @@ from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -35,6 +38,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QSplitter,
+    QStackedWidget,
     QStatusBar,
     QTableWidget,
     QTableWidgetItem,
@@ -134,6 +138,52 @@ def _file_row(
 
     btn.clicked.connect(_browse)
     return container, edit
+
+
+def _dir_row(dialog_title: str, default_dir: str = "") -> tuple[QWidget, QLineEdit]:
+    """Return a (container widget, QLineEdit) pair with a Browse button for directories."""
+    container = QWidget()
+    h = QHBoxLayout(container)
+    h.setContentsMargins(0, 0, 0, 0)
+    edit = QLineEdit()
+    if default_dir:
+        edit.setText(default_dir)
+    else:
+        edit.setPlaceholderText("Select output folder…")
+    btn = QPushButton("Browse…")
+    btn.setFixedWidth(80)
+    h.addWidget(edit)
+    h.addWidget(btn)
+
+    def _browse() -> None:
+        start = edit.text() or default_dir
+        path = QFileDialog.getExistingDirectory(container, dialog_title, start)
+        if path:
+            edit.setText(path)
+
+    btn.clicked.connect(_browse)
+    return container, edit
+
+
+def _shorten_label(label: str) -> str:
+    """Return a short city-level name from a potentially verbose address string.
+
+    Iterates comma-separated parts, strips leading postal codes, and returns
+    the first part that contains no remaining digits (i.e. looks like a place name).
+    Falls back to the postal-code-stripped first part if nothing cleaner is found.
+    """
+    parts = [p.strip() for p in label.split(",")]
+    for part in parts:
+        clean = re.sub(r"^\d[\d\s]*\s+", "", part).strip()
+        if clean and not any(c.isdigit() for c in clean):
+            return clean
+    clean = re.sub(r"^\d[\d\s]*\s+", "", parts[0]).strip()
+    return clean or parts[0]
+
+
+def _safe_filename(label: str) -> str:
+    """Sanitize a string for use as a filename component."""
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", label).strip(". ")
 
 
 def _log_widget() -> QPlainTextEdit:
@@ -269,14 +319,291 @@ class _MapsWorker(QThread):
             sys.stderr = old_stderr
 
 
+class _EasyWorker(QThread):
+    """Combined Maps→GPX + POI enrichment pipeline for Easy mode."""
+
+    log_message = pyqtSignal(str)
+    track_ready = pyqtSignal(str)  # track file path
+    pois_done = pyqtSignal(str, int)  # poi file path, count
+    error = pyqtSignal(str)
+    finished = pyqtSignal()
+
+    def __init__(
+        self,
+        url: str,
+        profile_id: str,
+        output_dir: str,
+        cancel_event: threading.Event,
+        quick: bool = False,
+    ) -> None:
+        super().__init__()
+        self._url = url
+        self._profile_id = profile_id
+        self._output_dir = output_dir
+        self._cancel_event = cancel_event
+        self._quick = quick
+
+    def run(self) -> None:
+        emitter = _LogEmitter()
+        emitter.message.connect(self.log_message)
+        capture = _CapturedStderr(emitter)
+        old_stderr = sys.stderr
+        sys.stderr = capture  # type: ignore[assignment]
+        session = requests.Session()
+        try:
+            # Step 1: Expand short URLs
+            url = self._url
+            if "goo.gl" in url or "maps.app" in url:
+                self.log_message.emit("Expanding short URL…")
+                url = _expand_url(url, session)
+                self.log_message.emit(f"  → {url}")
+
+            # Step 2: Parse waypoints
+            raw = parse_waypoints_from_url(url)
+            if len(raw) < 2:
+                self.error.emit("Need at least 2 waypoints (origin + destination).")
+                return
+            self.log_message.emit(f"Found {len(raw)} waypoint(s) in URL.")
+
+            # Step 3: Resolve / geocode waypoints
+            self.log_message.emit("Resolving waypoints via Nominatim…")
+            waypoints = _resolve_waypoints(raw, session)
+            for lat, lon, label in waypoints:
+                self.log_message.emit(f"  {label} → {lat:.5f}, {lon:.5f}")
+
+            # Step 4: Derive file names from start/finish labels
+            start_label = _shorten_label(waypoints[0][2])
+            finish_label = _shorten_label(waypoints[-1][2])
+            base_name = f"{_safe_filename(start_label)}-{_safe_filename(finish_label)}"
+            out_dir = pathlib.Path(self._output_dir)
+            track_path = str(out_dir / f"{base_name}.gpx")
+            poi_path = str(out_dir / f"{base_name}-{self._profile_id}.gpx")
+            track_name = f"{start_label} – {finish_label}"
+
+            # Step 5: Create track GPX (skip if already exists)
+            if pathlib.Path(track_path).exists():
+                self.log_message.emit(f"Track already exists, reusing: {track_path}")
+            else:
+                self.log_message.emit("Routing via OSRM (driving)…")
+                track_points = _route_osrm(waypoints, "driving", session)
+                self.log_message.emit(f"  {len(track_points)} track point(s) returned.")
+                _write_gpx(track_points, waypoints, track_path, track_name)
+                self.log_message.emit(f"Track saved: {track_path}")
+
+            self.track_ready.emit(track_path)
+
+            if self._cancel_event.is_set():
+                self.log_message.emit("Cancelled.")
+                return
+
+            # Step 6: Enrich with selected profile
+            self.log_message.emit(f"Enriching with '{self._profile_id}' profile…")
+            enrich_kwargs: dict[str, Any] = {"progress_interval": 5.0}
+            if self._quick:
+                enrich_kwargs.update(
+                    {"sample_km": 500.0, "max_km": 1.0, "country_sample_km": 500.0}
+                )
+            items = enrich_gpx_file(
+                track_path,
+                poi_path,
+                self._profile_id,
+                cancel_event=self._cancel_event,
+                **enrich_kwargs,
+            )
+            capture.flush()
+            self.log_message.emit(f"POIs saved: {poi_path}  ({len(items)} POI(s))")
+            self.pois_done.emit(poi_path, len(items))
+            self.finished.emit()
+
+        except Exception as exc:
+            capture.flush()
+            self.error.emit(str(exc))
+        finally:
+            sys.stderr = old_stderr
+
+
+# ── Tab: Easy mode ────────────────────────────────────────────────────────────
+
+
+class _EasyTab(QWidget):
+    """Easy mode: paste a Maps URL, pick a profile, generate GPX files."""
+
+    def __init__(self, parent: QWidget | None = None, quick: bool = False) -> None:
+        super().__init__(parent)
+        self._quick = quick
+        self._worker: _EasyWorker | None = None
+        self._cancel_event = threading.Event()
+        self._profiles: dict = {}
+        self._track_path = ""
+        self._poi_path = ""
+        self._poi_count = 0
+        self._setup_ui()
+        self._load_profiles()
+
+    def _setup_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setSpacing(10)
+        root.setContentsMargins(12, 12, 12, 12)
+
+        # URL input
+        url_box = QGroupBox("Google Maps directions URL")
+        url_l = QVBoxLayout(url_box)
+        self._url_edit = QLineEdit()
+        self._url_edit.setPlaceholderText(
+            "Paste link here…  e.g.  https://www.google.com/maps/dir/Paris/Lyon/"
+            "  or  maps.app.goo.gl/…"
+        )
+        url_l.addWidget(self._url_edit)
+        root.addWidget(url_box)
+
+        # Profile + output folder
+        cfg_box = QGroupBox("Options")
+        cfg_l = QFormLayout(cfg_box)
+        self._profile_combo = QComboBox()
+        cfg_l.addRow("Profile:", self._profile_combo)
+        dir_w, self._output_dir_edit = _dir_row("Select Output Folder", str(pathlib.Path.home()))
+        cfg_l.addRow("Output folder:", dir_w)
+        root.addWidget(cfg_box)
+
+        # Buttons
+        btn_row = QHBoxLayout()
+        self._run_btn = QPushButton("Generate GPX")
+        self._run_btn.setFixedHeight(40)
+        self._cancel_btn = QPushButton("Cancel")
+        self._cancel_btn.setFixedHeight(40)
+        self._cancel_btn.setEnabled(False)
+        btn_row.addWidget(self._run_btn)
+        btn_row.addWidget(self._cancel_btn)
+        root.addLayout(btn_row)
+
+        self._run_btn.clicked.connect(self._run)
+        self._cancel_btn.clicked.connect(self._cancel)
+
+        # Progress + status
+        self._progress = QProgressBar()
+        self._status_lbl = QLabel("Ready.")
+        root.addWidget(self._progress)
+        root.addWidget(self._status_lbl)
+
+        # Splitter: log (top) + results (bottom)
+        splitter = QSplitter(Qt.Orientation.Vertical)
+
+        log_w = QWidget()
+        log_l = QVBoxLayout(log_w)
+        log_l.setContentsMargins(0, 0, 0, 0)
+        log_l.addWidget(QLabel("Log:"))
+        self._log = _log_widget()
+        log_l.addWidget(self._log)
+        splitter.addWidget(log_w)
+
+        results_w = QWidget()
+        res_l = QVBoxLayout(results_w)
+        res_l.setContentsMargins(0, 0, 0, 0)
+        res_l.addWidget(QLabel("Generated files:"))
+        self._results_lbl = QLabel("—")
+        self._results_lbl.setFont(QFont("Monospace", 9))
+        self._results_lbl.setWordWrap(True)
+        self._results_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        res_l.addWidget(self._results_lbl)
+        res_l.addStretch()
+        splitter.addWidget(results_w)
+
+        splitter.setSizes([360, 100])
+        root.addWidget(splitter, 1)
+
+    def _load_profiles(self) -> None:
+        try:
+            self._profiles = load_all_profiles()
+            for p in self._profiles.values():
+                self._profile_combo.addItem(f"{p.id}  —  {p.description}", p.id)
+        except Exception as exc:
+            _append_log(self._log, f"Warning: could not load profiles: {exc}")
+
+    def _run(self) -> None:
+        url = self._url_edit.text().strip()
+        pid = self._profile_combo.currentData()
+        out_dir = self._output_dir_edit.text().strip()
+
+        if not url:
+            QMessageBox.warning(self, "URL required", "Please enter a Google Maps directions URL.")
+            return
+        if not pid:
+            QMessageBox.warning(self, "Profile required", "Please select a profile.")
+            return
+        if not out_dir:
+            QMessageBox.warning(self, "Folder required", "Please select an output folder.")
+            return
+        if not pathlib.Path(out_dir).is_dir():
+            QMessageBox.warning(self, "Invalid folder", f"Output folder does not exist:\n{out_dir}")
+            return
+
+        self._log.clear()
+        self._results_lbl.setText("—")
+        self._track_path = ""
+        self._poi_path = ""
+        self._poi_count = 0
+        self._progress.setRange(0, 0)
+        self._status_lbl.setText("Running…")
+        self._run_btn.setEnabled(False)
+        self._cancel_btn.setEnabled(True)
+
+        self._cancel_event = threading.Event()
+        self._worker = _EasyWorker(url, pid, out_dir, self._cancel_event, self._quick)
+        self._worker.log_message.connect(lambda t: _append_log(self._log, t))
+        self._worker.track_ready.connect(self._on_track_ready)
+        self._worker.pois_done.connect(self._on_pois_done)
+        self._worker.finished.connect(self._on_done)
+        self._worker.error.connect(self._on_error)
+        self._worker.start()
+
+    def _cancel(self) -> None:
+        _append_log(self._log, "Cancellation requested — waiting for current batch…")
+        self._cancel_event.set()
+        self._cancel_btn.setEnabled(False)
+
+    def _on_track_ready(self, path: str) -> None:
+        self._track_path = path
+        self._update_results()
+
+    def _on_pois_done(self, path: str, count: int) -> None:
+        self._poi_path = path
+        self._poi_count = count
+        self._update_results()
+
+    def _update_results(self) -> None:
+        lines: list[str] = []
+        if self._track_path:
+            lines.append(f"Track:  {self._track_path}")
+        if self._poi_path:
+            lines.append(f"POIs:   {self._poi_path}  ({self._poi_count} POI(s))")
+        self._results_lbl.setText("\n".join(lines) if lines else "—")
+
+    def _on_done(self) -> None:
+        self._progress.setRange(0, 1)
+        self._progress.setValue(1)
+        self._status_lbl.setText(f"Done — {self._poi_count} POI(s) found.")
+        self._run_btn.setEnabled(True)
+        self._cancel_btn.setEnabled(False)
+
+    def _on_error(self, msg: str) -> None:
+        self._progress.setRange(0, 1)
+        self._progress.setValue(0)
+        self._status_lbl.setText("Error — see log.")
+        self._run_btn.setEnabled(True)
+        self._cancel_btn.setEnabled(False)
+        _append_log(self._log, f"\nERROR: {msg}")
+        QMessageBox.critical(self, "Failed", msg)
+
+
 # ── Tab: POI Enricher ─────────────────────────────────────────────────────────
 
 
 class _EnricherTab(QWidget):
     """Main workflow tab: enrich a GPX track with nearby OSM POIs."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, quick: bool = False) -> None:
         super().__init__(parent)
+        self._quick = quick
         self._worker: _EnricherWorker | None = None
         self._cancel_event = threading.Event()
         self._profiles: dict = {}
@@ -444,10 +771,10 @@ class _EnricherTab(QWidget):
         self._cancel_event = threading.Event()
 
         kwargs: dict[str, Any] = {
-            "max_km": self._max_km.value() or None,
-            "sample_km": self._sample_km.value() or None,
+            "max_km": self._max_km.value() or (1.0 if self._quick else None),
+            "sample_km": self._sample_km.value() or (500.0 if self._quick else None),
             "batch_size": self._batch_size.value() or None,
-            "country_sample_km": self._country_km.value(),
+            "country_sample_km": self._country_km.value() if not self._quick else 500.0,
             "progress_interval": 5.0,
             "verbose": self._verbose_cb.isChecked(),
         }
@@ -665,16 +992,57 @@ class _MapsTab(QWidget):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, quick: bool = False) -> None:
         super().__init__()
-        self.setWindowTitle("GPX POI Enricher")
+        self.setWindowTitle("GPX POI Enricher" + (" [quick]" if quick else ""))
         self.resize(760, 820)
 
-        tabs = QTabWidget()
-        tabs.addTab(_EnricherTab(), "POI Enricher")
-        tabs.addTab(_SplitTab(), "Split Waypoints")
-        tabs.addTab(_MapsTab(), "Maps → GPX")
-        self.setCentralWidget(tabs)
+        central = QWidget()
+        vbox = QVBoxLayout(central)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(0)
+
+        # Mode switcher bar
+        mode_bar = QWidget()
+        mode_h = QHBoxLayout(mode_bar)
+        mode_h.setContentsMargins(8, 6, 8, 4)
+
+        self._easy_btn = QPushButton("Easy")
+        self._easy_btn.setCheckable(True)
+        self._easy_btn.setChecked(True)
+        self._easy_btn.setFixedWidth(90)
+
+        self._expert_btn = QPushButton("Expert")
+        self._expert_btn.setCheckable(True)
+        self._expert_btn.setFixedWidth(90)
+
+        btn_group = QButtonGroup(self)
+        btn_group.setExclusive(True)
+        btn_group.addButton(self._easy_btn)
+        btn_group.addButton(self._expert_btn)
+
+        mode_h.addWidget(self._easy_btn)
+        mode_h.addWidget(self._expert_btn)
+        mode_h.addStretch()
+        vbox.addWidget(mode_bar)
+
+        # Stacked content
+        self._stack = QStackedWidget()
+
+        self._easy_widget = _EasyTab(quick=quick)
+        self._stack.addWidget(self._easy_widget)  # index 0
+
+        expert_tabs = QTabWidget()
+        expert_tabs.addTab(_EnricherTab(quick=quick), "POI Enricher")
+        expert_tabs.addTab(_SplitTab(), "Split Waypoints")
+        expert_tabs.addTab(_MapsTab(), "Maps → GPX")
+        self._stack.addWidget(expert_tabs)  # index 1
+
+        vbox.addWidget(self._stack, 1)
+        self.setCentralWidget(central)
+
+        self._easy_btn.clicked.connect(lambda: self._stack.setCurrentIndex(0))
+        self._expert_btn.clicked.connect(lambda: self._stack.setCurrentIndex(1))
 
         sb = QStatusBar()
         sb.showMessage("Ready.")
@@ -685,8 +1053,10 @@ class MainWindow(QMainWindow):
 
 
 def main() -> None:
-    app = QApplication.instance() or QApplication(sys.argv)
-    win = MainWindow()
+    quick = "--quick" in sys.argv
+    qt_argv = [a for a in sys.argv if a != "--quick"]
+    app = QApplication.instance() or QApplication(qt_argv)
+    win = MainWindow(quick=quick)
     win.show()
     sys.exit(app.exec())
 
