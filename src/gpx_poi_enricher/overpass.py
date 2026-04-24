@@ -179,9 +179,6 @@ def _choose_name(tags: dict[str, str], profile: SearchProfile) -> str:
         val = tags.get(key, "").strip()
         if val:
             return val
-    for tag in profile.tags:
-        if tag["value"] != "*" and tags.get(tag["key"]) == tag["value"]:
-            return f"{profile.description} ({tag['key']}={tag['value']})"
     return profile.description
 
 
