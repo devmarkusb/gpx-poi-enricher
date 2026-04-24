@@ -21,6 +21,10 @@
     <string name="hint_maps_url">Google Maps directions URL</string>
     <string name="hint_track_name">Track name in GPX</string>
 
+    <!-- Easy mode -->
+    <string name="btn_generate">Generate GPX</string>
+    <string name="label_generated_files">Generated files</string>
+
     <!-- Buttons -->
     <string name="btn_browse">Browse…</string>
     <string name="btn_save_as">Save As…</string>
