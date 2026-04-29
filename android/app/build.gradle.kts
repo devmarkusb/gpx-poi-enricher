@@ -1,3 +1,5 @@
+import java.io.File
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -47,6 +49,11 @@ android {
 
 chaquopy {
     defaultConfig {
+        // Chaquopy's bundled pip uses 'cgi' (removed in Python 3.13+); force 3.12 as build host.
+        listOf(
+            "/opt/homebrew/opt/python@3.12/bin/python3.12",
+            "/usr/bin/python3.12",
+        ).firstOrNull { File(it).canExecute() }?.let { buildPython(it) }
         version = "3.11"
         pip {
             install("requests>=2.28")
