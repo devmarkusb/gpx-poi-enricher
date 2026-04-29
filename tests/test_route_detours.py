@@ -1,15 +1,16 @@
-"""Tests for route_detours: detour extraction."""
+"""Tests for route_detours."""
 
 from __future__ import annotations
 
 from gpx_poi_enricher.route_detours import (
+    alternate_redundant_with_prior,
+    detour_span_for_alternate,
     extract_detour_segments,
     polyline_length_km,
 )
 
 
 def _straight_line(lat0: float, lon0: float, n: int, step_km: float) -> list[tuple[float, float]]:
-    """Rough north-going polyline (~step_km between points at mid-latitude)."""
     pts = []
     dlat = (step_km / 111.0) if n > 1 else 0.0
     for i in range(n):
@@ -28,7 +29,6 @@ def test_extract_detour_identical_to_reference():
 
 
 def test_extract_detour_parallel_far_route_nonempty():
-    """Alternate stays ~1 km east of reference — non-empty detour list."""
     ref = _straight_line(48.0, 11.0, 50, 0.4)
     alt = [(lat, lon + 0.015) for lat, lon in ref]
     segs = extract_detour_segments(
@@ -40,3 +40,31 @@ def test_extract_detour_parallel_far_route_nonempty():
     )
     assert len(segs) >= 1
     assert sum(polyline_length_km(s) for s in segs) > 5.0
+
+
+def test_detour_span_single_polyline_for_parallel_alternate():
+    """One merged span per alternate (not one GPX per fragment)."""
+    ref = _straight_line(48.0, 11.0, 60, 0.35)
+    alt = [(lat, lon + 0.015) for lat, lon in ref]
+    span = detour_span_for_alternate(
+        alt,
+        ref,
+        near_threshold_km=0.05,
+        min_detour_km=0.15,
+        gap_merge_km=0.12,
+        min_points=5,
+    )
+    assert span is not None
+    assert len(span) >= 5
+
+
+def test_redundant_reverse_matches_primary():
+    primary = _straight_line(48.0, 11.0, 80, 0.4)
+    reverse_dup = list(reversed(primary))
+    assert alternate_redundant_with_prior(reverse_dup, primary, [], mean_dup_km=0.05, stride=10)
+
+
+def test_redundant_detects_prior_alternate():
+    a = _straight_line(48.0, 11.0, 40, 0.5)
+    b = [(lat, lon + 0.0001) for lat, lon in a]
+    assert alternate_redundant_with_prior(b, a, [a], mean_dup_km=0.02, stride=5)
