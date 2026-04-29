@@ -2,6 +2,11 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
 
     <item
+        android:id="@+id/nav_easy"
+        android:icon="@drawable/ic_easy"
+        android:title="@string/tab_easy" />
+
+    <item
         android:id="@+id/nav_enricher"
         android:icon="@drawable/ic_poi"
         android:title="@string/tab_enricher" />

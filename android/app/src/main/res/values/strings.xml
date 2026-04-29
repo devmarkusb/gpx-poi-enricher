@@ -3,6 +3,7 @@
     <string name="app_name">GPX POI Enricher</string>
 
     <!-- Tab labels -->
+    <string name="tab_easy">Easy</string>
     <string name="tab_enricher">POI Enricher</string>
     <string name="tab_split">Split Waypoints</string>
     <string name="tab_maps">Maps → GPX</string>
