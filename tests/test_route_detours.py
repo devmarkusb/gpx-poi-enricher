@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from gpx_poi_enricher.route_detours import (
+    alternate_is_reverse_itinerary,
     alternate_redundant_with_prior,
     detour_span_for_alternate,
     extract_detour_segments,
@@ -68,3 +69,15 @@ def test_redundant_detects_prior_alternate():
     a = _straight_line(48.0, 11.0, 40, 0.5)
     b = [(lat, lon + 0.0001) for lat, lon in a]
     assert alternate_redundant_with_prior(b, a, [a], mean_dup_km=0.02, stride=5)
+
+
+def test_reverse_itinerary_endpoints_swap():
+    primary = [(48.0, 11.0), (49.0, 11.5)]
+    alt_rev = [(49.0, 11.5), (48.0, 11.0)]
+    assert alternate_is_reverse_itinerary(primary, alt_rev, endpoint_km=5.0)
+
+
+def test_same_direction_not_reverse_itinerary():
+    primary = [(48.0, 11.0), (49.0, 11.5)]
+    alt_fw = [(48.01, 11.01), (49.01, 11.51)]
+    assert not alternate_is_reverse_itinerary(primary, alt_fw, endpoint_km=5.0)

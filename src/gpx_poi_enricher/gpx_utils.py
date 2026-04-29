@@ -98,6 +98,126 @@ def min_distance_to_track_km(
     return best
 
 
+def _point_to_segment_distance_planar_km(
+    lat: float,
+    lon: float,
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float,
+) -> float:
+    """Shortest distance from *lat*, *lon* to the segment *(lat1,lon1)-(lat2,lon2)*.
+
+    Uses a local tangent-plane approximation (adequate for typical OSRM segment lengths).
+    """
+    lat0 = (lat1 + lat2 + lat) / 3.0
+    cos_lat = math.cos(math.radians(lat0))
+    km_lon = 111.320 * cos_lat
+    km_lat = 111.132
+
+    px = (lon - lon1) * km_lon
+    py = (lat - lat1) * km_lat
+    vx = (lon2 - lon1) * km_lon
+    vy = (lat2 - lat1) * km_lat
+    seg_len_sq = vx * vx + vy * vy
+    if seg_len_sq < 1e-24:
+        return haversine_km(lat, lon, lat1, lon1)
+
+    t = max(0.0, min(1.0, (px * vx + py * vy) / seg_len_sq))
+    proj_lat = lat1 + t * (lat2 - lat1)
+    proj_lon = lon1 + t * (lon2 - lon1)
+    return haversine_km(lat, lon, proj_lat, proj_lon)
+
+
+def min_distance_to_polyline_segments_km(
+    lat: float,
+    lon: float,
+    track_points: list[tuple[float, float]],
+    *,
+    coarse_step: int = 25,
+    segment_window: int = 120,
+) -> float:
+    """Minimum great-circle distance from *(lat, lon)* to the polyline through *track_points*.
+
+    Distance is measured to **segments** between consecutive vertices, not only to vertices.
+    This avoids false \"far\" classifications when the query point lies beside a long straight
+    (e.g. opposite carriageway) while vertices sit only on one side.
+
+    Uses a coarse nearest-vertex pass then checks segments in a window around that vertex.
+    Short tracks scan all segments.
+    """
+    n = len(track_points)
+    if n == 0:
+        return float("inf")
+    if n == 1:
+        return haversine_km(lat, lon, track_points[0][0], track_points[0][1])
+
+    if n <= segment_window * 2:
+        best = float("inf")
+        for i in range(n - 1):
+            d = _point_to_segment_distance_planar_km(
+                lat,
+                lon,
+                track_points[i][0],
+                track_points[i][1],
+                track_points[i + 1][0],
+                track_points[i + 1][1],
+            )
+            if d < best:
+                best = d
+        return best
+
+    best_idx = 0
+    best_v = float("inf")
+    for i in range(0, n, coarse_step):
+        d = haversine_km(lat, lon, track_points[i][0], track_points[i][1])
+        if d < best_v:
+            best_v = d
+            best_idx = i
+
+    lo = max(0, best_idx - segment_window)
+    hi = min(n - 1, best_idx + segment_window)
+
+    best = float("inf")
+    for i in range(lo, hi):
+        d = _point_to_segment_distance_planar_km(
+            lat,
+            lon,
+            track_points[i][0],
+            track_points[i][1],
+            track_points[i + 1][0],
+            track_points[i + 1][1],
+        )
+        if d < best:
+            best = d
+
+    # Near polyline ends the coarse vertex may sit far along-track; cover head/tail segments.
+    for i in range(0, min(40, n - 1)):
+        d = _point_to_segment_distance_planar_km(
+            lat,
+            lon,
+            track_points[i][0],
+            track_points[i][1],
+            track_points[i + 1][0],
+            track_points[i + 1][1],
+        )
+        if d < best:
+            best = d
+    for i in range(max(0, n - 41), n - 1):
+        d = _point_to_segment_distance_planar_km(
+            lat,
+            lon,
+            track_points[i][0],
+            track_points[i][1],
+            track_points[i + 1][0],
+            track_points[i + 1][1],
+        )
+        if d < best:
+            best = d
+
+    return best
+
+
 def remove_tracks_and_routes(root: ET.Element) -> None:
     """Remove all ``<trk>`` and ``<rte>`` elements from the GPX root in-place."""
     trk_tag = f"{{{GPX_NS}}}trk"

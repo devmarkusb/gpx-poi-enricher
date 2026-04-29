@@ -9,7 +9,7 @@ reverse) can be skipped as redundant.
 
 from __future__ import annotations
 
-from gpx_poi_enricher.gpx_utils import haversine_km, min_distance_to_track_km
+from gpx_poi_enricher.gpx_utils import haversine_km, min_distance_to_polyline_segments_km
 
 
 def polyline_length_km(points: list[tuple[float, float]]) -> float:
@@ -54,8 +54,11 @@ def _far_ranges_merged(
     if len(alternate) < 2 or len(reference) < 2:
         return []
 
+    # Segment distance (not vertex-only): avoids classifying opposite carriageway / reversed
+    # OSRM geometry as a full-route \"detour\" when it still follows the same corridor.
     near_flags = [
-        min_distance_to_track_km(lat, lon, reference) < near_threshold_km for lat, lon in alternate
+        min_distance_to_polyline_segments_km(lat, lon, reference) < near_threshold_km
+        for lat, lon in alternate
     ]
 
     ranges: list[tuple[int, int]] = []
@@ -140,20 +143,49 @@ def detour_span_for_alternate(
     return span
 
 
+def alternate_is_reverse_itinerary(
+    primary_pts: list[tuple[float, float]],
+    alt_pts: list[tuple[float, float]],
+    *,
+    endpoint_km: float = 3.0,
+) -> bool:
+    """True when the alternate is clearly the same trip as the primary but **B→A** not **A→B**.
+
+    OSRM often returns a different polyline for the return direction (other carriageway, etc.),
+    so geometry-vs-primary tests may still mark most points as \"far\". For detour output we
+    treat this case as **not** a side detour: use the primary and ``-full-NN`` only.
+    """
+    if len(primary_pts) < 2 or len(alt_pts) < 2:
+        return False
+    a0, a1 = primary_pts[0], primary_pts[-1]
+    b0, b1 = alt_pts[0], alt_pts[-1]
+    same_order = (
+        haversine_km(b0[0], b0[1], a0[0], a0[1]) <= endpoint_km
+        and haversine_km(b1[0], b1[1], a1[0], a1[1]) <= endpoint_km
+    )
+    if same_order:
+        return False
+    reverse_order = (
+        haversine_km(b0[0], b0[1], a1[0], a1[1]) <= endpoint_km
+        and haversine_km(b1[0], b1[1], a0[0], a0[1]) <= endpoint_km
+    )
+    return reverse_order
+
+
 def mean_min_distance_to_polyline(
     probe: list[tuple[float, float]],
     polyline: list[tuple[float, float]],
     *,
     stride: int = 25,
 ) -> float:
-    """Mean ``min_distance_to_track_km`` for sampled points on *probe* vs *polyline*."""
+    """Mean min distance to *polyline* (segment-based) for sampled points on *probe*."""
     if len(probe) < 2 or len(polyline) < 2:
         return float("inf")
     step = max(1, stride)
     dists: list[float] = []
     for i in range(0, len(probe), step):
         lat, lon = probe[i]
-        dists.append(min_distance_to_track_km(lat, lon, polyline))
+        dists.append(min_distance_to_polyline_segments_km(lat, lon, polyline))
     return sum(dists) / len(dists)
 
 
