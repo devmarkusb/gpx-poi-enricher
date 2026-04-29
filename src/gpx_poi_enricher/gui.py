@@ -56,7 +56,7 @@ from .maps_to_gpx_cli import (
     parse_waypoints_from_url,
 )
 from .profiles import load_all_profiles
-from .route_detours import extract_detour_segments
+from .route_detours import alternate_redundant_with_prior, detour_span_for_alternate
 from .split_cli import add_split_waypoints
 
 # ── Stderr capture ─────────────────────────────────────────────────────────────
@@ -328,17 +328,30 @@ class _MapsWorker(QThread):
                     _write_gpx(pts, wpts, str(alt_path), alt_track)
                     self.log_message.emit(f"Saved alternate GPX: {alt_path}")
 
-                detour_n = 1
-                for _wpts, alt_pts in routes[1:]:
-                    segs = extract_detour_segments(alt_pts, primary_pts)
-                    for seg in segs:
-                        det_path = out_dir / f"{stem}-detour-{detour_n:02d}.gpx"
-                        _write_gpx(seg, [], str(det_path), f"Detour {detour_n}")
-                        self.log_message.emit(f"Saved detour: {det_path} ({len(seg)} points)")
-                        detour_n += 1
-                if detour_n == 1:
+                prior_alt_pts: list[list[tuple[float, float]]] = []
+                wrote_detour = False
+                for j, (_wpts, alt_pts) in enumerate(routes[1:], start=2):
+                    if alternate_redundant_with_prior(alt_pts, primary_pts, prior_alt_pts):
+                        self.log_message.emit(
+                            f"Alternate {j}: skipping detour GPX (same geometry as primary "
+                            "or an earlier alternate, including reverse)."
+                        )
+                        prior_alt_pts.append(alt_pts)
+                        continue
+                    prior_alt_pts.append(alt_pts)
+                    span = detour_span_for_alternate(alt_pts, primary_pts)
+                    if not span:
+                        self.log_message.emit(
+                            f"Alternate {j}: no detour GPX (stays on primary within threshold)."
+                        )
+                        continue
+                    det_path = out_dir / f"{stem}-detour-{j:02d}.gpx"
+                    _write_gpx(span, [], str(det_path), f"Detour (alternate {j})")
+                    self.log_message.emit(f"Saved detour: {det_path} ({len(span)} points)")
+                    wrote_detour = True
+                if len(routes) > 1 and not wrote_detour:
                     self.log_message.emit(
-                        "No detour GPX files (alternates match primary within threshold)."
+                        "No detour GPX files (alternates coincide with primary or each other)."
                     )
 
             self.finished.emit()
@@ -433,19 +446,26 @@ class _EasyWorker(QThread):
                     _write_gpx(pts, wpts, str(alt_path), alt_track)
                     self.log_message.emit(f"Alternate route GPX: {alt_path}")
 
-                detour_n = 1
-                for wpts, alt_pts in routes[1:]:
-                    segs = extract_detour_segments(alt_pts, primary_pts)
-                    for seg in segs:
-                        det_path = out_dir / f"{base_name}-detour-{detour_n:02d}.gpx"
-                        _write_gpx(seg, [], str(det_path), f"Detour {detour_n}")
-                        tracks_to_enrich.append(str(det_path))
-                        self.log_message.emit(f"Detour segment: {det_path} ({len(seg)} points)")
-                        detour_n += 1
-                if detour_n == 1:
-                    self.log_message.emit(
-                        "No detour segments above threshold (alternates match primary)."
-                    )
+                prior_alt_pts: list[list[tuple[float, float]]] = []
+                for j, (wpts, alt_pts) in enumerate(routes[1:], start=2):
+                    if alternate_redundant_with_prior(alt_pts, primary_pts, prior_alt_pts):
+                        self.log_message.emit(
+                            f"Alternate {j}: skipping detour enrichment (same as primary "
+                            "or earlier alternate, including reverse)."
+                        )
+                        prior_alt_pts.append(alt_pts)
+                        continue
+                    prior_alt_pts.append(alt_pts)
+                    span = detour_span_for_alternate(alt_pts, primary_pts)
+                    if not span:
+                        self.log_message.emit(
+                            f"Alternate {j}: no detour track (on primary within threshold)."
+                        )
+                        continue
+                    det_path = out_dir / f"{base_name}-detour-{j:02d}.gpx"
+                    _write_gpx(span, [], str(det_path), f"Detour (alternate {j})")
+                    tracks_to_enrich.append(str(det_path))
+                    self.log_message.emit(f"Detour GPX: {det_path} ({len(span)} points)")
 
             self.tracks_ready.emit(tracks_to_enrich)
 
@@ -580,15 +600,17 @@ class _EasyTab(QWidget):
         res_l = QVBoxLayout(results_w)
         res_l.setContentsMargins(0, 0, 0, 0)
         res_l.addWidget(QLabel("Generated files:"))
-        self._results_lbl = QLabel("—")
-        self._results_lbl.setFont(QFont("Monospace", 9))
-        self._results_lbl.setWordWrap(True)
-        self._results_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        res_l.addWidget(self._results_lbl)
-        res_l.addStretch()
+        self._results_edit = QPlainTextEdit()
+        self._results_edit.setReadOnly(True)
+        self._results_edit.setPlainText("—")
+        self._results_edit.setFont(QFont("Monospace", 9))
+        self._results_edit.setMaximumHeight(140)
+        self._results_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._results_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        res_l.addWidget(self._results_edit)
         splitter.addWidget(results_w)
 
-        splitter.setSizes([360, 100])
+        splitter.setSizes([360, 140])
         root.addWidget(splitter, 1)
 
     def _load_profiles(self) -> None:
@@ -624,7 +646,7 @@ class _EasyTab(QWidget):
             return
 
         self._log.clear()
-        self._results_lbl.setText("—")
+        self._results_edit.setPlainText("—")
         self._track_paths = []
         self._poi_results = []
         self._progress.setRange(0, 0)
@@ -668,7 +690,7 @@ class _EasyTab(QWidget):
                 total += n
             if len(self._poi_results) > 1:
                 lines.append(f"  (sum of counts: {total})")
-        self._results_lbl.setText("\n".join(lines) if lines else "—")
+        self._results_edit.setPlainText("\n".join(lines) if lines else "—")
 
     def _on_done(self) -> None:
         self._progress.setRange(0, 1)

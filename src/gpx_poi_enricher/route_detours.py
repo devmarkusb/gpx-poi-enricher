@@ -1,10 +1,10 @@
-"""Extract detour segments from multiple routed polylines.
+"""Extract detour geometry from multiple routed polylines.
 
-Given a primary route (reference) and one or more alternate routes, finds
-contiguous segments on alternates that stay farther than a threshold from the
-reference polyline — these are treated as significant detours. Reverse or
-parallel routes that largely coincide with the reference produce few or no
-detour segments because distances remain below the threshold.
+Given a primary route (reference) and alternate routes, finds where alternates
+leave the reference farther than a threshold. For output we collapse each
+alternate into a single contiguous span (one GPX per alternate) instead of many
+tiny fragments. Routes that match the primary or an earlier alternate (including
+reverse) can be skipped as redundant.
 """
 
 from __future__ import annotations
@@ -43,23 +43,14 @@ def _merge_far_ranges(
     return merged
 
 
-def extract_detour_segments(
+def _far_ranges_merged(
     alternate: list[tuple[float, float]],
     reference: list[tuple[float, float]],
     *,
-    near_threshold_km: float = 0.045,
-    min_detour_km: float = 0.18,
-    gap_merge_km: float = 0.06,
-    min_points: int = 4,
-) -> list[list[tuple[float, float]]]:
-    """Return polyline chunks on *alternate* that deviate significantly from *reference*.
-
-    Points on *alternate* are classified as "near" when their distance to the
-    *reference* polyline (vertex sampling via :func:`~gpx_utils.min_distance_to_track_km`)
-    is below *near_threshold_km*. Contiguous runs of "far" points at least
-    *min_detour_km* long become detour segments. Short near-gaps between two far
-    runs are merged when the gap length is below *gap_merge_km*.
-    """
+    near_threshold_km: float,
+    gap_merge_km: float,
+) -> list[tuple[int, int]]:
+    """Half-open index ranges on *alternate* where points are far from *reference*."""
     if len(alternate) < 2 or len(reference) < 2:
         return []
 
@@ -67,7 +58,6 @@ def extract_detour_segments(
         min_distance_to_track_km(lat, lon, reference) < near_threshold_km for lat, lon in alternate
     ]
 
-    # Half-open ranges [lo, hi) where far
     ranges: list[tuple[int, int]] = []
     i = 0
     n = len(near_flags)
@@ -83,8 +73,25 @@ def extract_detour_segments(
     if not ranges:
         return []
 
-    merged_ranges = _merge_far_ranges(alternate, ranges, gap_merge_km)
+    return _merge_far_ranges(alternate, ranges, gap_merge_km)
 
+
+def extract_detour_segments(
+    alternate: list[tuple[float, float]],
+    reference: list[tuple[float, float]],
+    *,
+    near_threshold_km: float = 0.055,
+    min_detour_km: float = 0.35,
+    gap_merge_km: float = 0.12,
+    min_points: int = 6,
+) -> list[list[tuple[float, float]]]:
+    """Return polyline chunks on *alternate* that deviate significantly from *reference*."""
+    merged_ranges = _far_ranges_merged(
+        alternate,
+        reference,
+        near_threshold_km=near_threshold_km,
+        gap_merge_km=gap_merge_km,
+    )
     out: list[list[tuple[float, float]]] = []
     for lo, hi in merged_ranges:
         chunk = alternate[lo:hi]
@@ -95,3 +102,86 @@ def extract_detour_segments(
         out.append(chunk)
 
     return out
+
+
+def detour_span_for_alternate(
+    alternate: list[tuple[float, float]],
+    reference: list[tuple[float, float]],
+    *,
+    near_threshold_km: float = 0.055,
+    min_detour_km: float = 0.35,
+    gap_merge_km: float = 0.12,
+    min_points: int = 6,
+) -> list[tuple[float, float]] | None:
+    """Single contiguous slice of *alternate* covering all deviation from *reference*.
+
+    Returns one polyline per alternate URL (indices ``min … max`` along that route)
+    so callers emit one ``-detour-NN.gpx`` per alternate instead of many fragments.
+    ``None`` if there is no substantial deviation.
+    """
+    merged_ranges = _far_ranges_merged(
+        alternate,
+        reference,
+        near_threshold_km=near_threshold_km,
+        gap_merge_km=gap_merge_km,
+    )
+    if not merged_ranges:
+        return None
+
+    total_far_km = sum(polyline_length_km(alternate[lo:hi]) for lo, hi in merged_ranges)
+    if total_far_km < min_detour_km:
+        return None
+
+    lo_span = min(lo for lo, _ in merged_ranges)
+    hi_span = max(hi for _, hi in merged_ranges)
+    span = alternate[lo_span:hi_span]
+    if len(span) < min_points:
+        return None
+    return span
+
+
+def mean_min_distance_to_polyline(
+    probe: list[tuple[float, float]],
+    polyline: list[tuple[float, float]],
+    *,
+    stride: int = 25,
+) -> float:
+    """Mean ``min_distance_to_track_km`` for sampled points on *probe* vs *polyline*."""
+    if len(probe) < 2 or len(polyline) < 2:
+        return float("inf")
+    step = max(1, stride)
+    dists: list[float] = []
+    for i in range(0, len(probe), step):
+        lat, lon = probe[i]
+        dists.append(min_distance_to_track_km(lat, lon, polyline))
+    return sum(dists) / len(dists)
+
+
+def alternate_redundant_with_prior(
+    alt_pts: list[tuple[float, float]],
+    primary_pts: list[tuple[float, float]],
+    prior_alt_pts: list[list[tuple[float, float]]],
+    *,
+    mean_dup_km: float = 0.08,
+    stride: int = 25,
+) -> bool:
+    """True if *alt_pts* matches the primary or any earlier alternate (forward or reverse)."""
+    if len(alt_pts) < 2:
+        return True
+
+    if mean_min_distance_to_polyline(alt_pts, primary_pts, stride=stride) <= mean_dup_km:
+        return True
+
+    alt_rev = list(reversed(alt_pts))
+    if mean_min_distance_to_polyline(alt_rev, primary_pts, stride=stride) <= mean_dup_km:
+        return True
+
+    for prev in prior_alt_pts:
+        if len(prev) < 2:
+            continue
+        if mean_min_distance_to_polyline(alt_pts, prev, stride=stride) <= mean_dup_km:
+            return True
+        if mean_min_distance_to_polyline(alt_rev, prev, stride=stride) <= mean_dup_km:
+            return True
+
+    return False
