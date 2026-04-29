@@ -56,7 +56,11 @@ from .maps_to_gpx_cli import (
     parse_waypoints_from_url,
 )
 from .profiles import load_all_profiles
-from .route_detours import alternate_redundant_with_prior, detour_span_for_alternate
+from .route_detours import (
+    alternate_is_reverse_itinerary,
+    alternate_redundant_with_prior,
+    detour_span_for_alternate,
+)
 from .split_cli import add_split_waypoints
 
 # ── Stderr capture ─────────────────────────────────────────────────────────────
@@ -338,6 +342,13 @@ class _MapsWorker(QThread):
                         )
                         prior_alt_pts.append(alt_pts)
                         continue
+                    if alternate_is_reverse_itinerary(primary_pts, alt_pts):
+                        self.log_message.emit(
+                            f"Alternate {j}: skipping detour GPX (reverse itinerary B→A vs "
+                            "primary A→B — no separate detour; see full-route GPX)."
+                        )
+                        prior_alt_pts.append(alt_pts)
+                        continue
                     prior_alt_pts.append(alt_pts)
                     span = detour_span_for_alternate(alt_pts, primary_pts)
                     if not span:
@@ -455,6 +466,13 @@ class _EasyWorker(QThread):
                         )
                         prior_alt_pts.append(alt_pts)
                         continue
+                    if alternate_is_reverse_itinerary(primary_pts, alt_pts):
+                        self.log_message.emit(
+                            f"Alternate {j}: skipping detour enrichment (reverse itinerary "
+                            "B→A vs primary A→B)."
+                        )
+                        prior_alt_pts.append(alt_pts)
+                        continue
                     prior_alt_pts.append(alt_pts)
                     span = detour_span_for_alternate(alt_pts, primary_pts)
                     if not span:
@@ -480,7 +498,7 @@ class _EasyWorker(QThread):
                 )
 
             poi_results: list[tuple[str, int]] = []
-            for tpath in tracks_to_enrich:
+            for i, tpath in enumerate(tracks_to_enrich):
                 if self._cancel_event.is_set():
                     self.log_message.emit("Cancelled.")
                     return
@@ -491,6 +509,7 @@ class _EasyWorker(QThread):
                     tpath,
                     poi_path,
                     self._profile_id,
+                    early_cancel_if_no_pois=(i == 0),
                     cancel_event=self._cancel_event,
                     **enrich_kwargs,
                 )
@@ -542,7 +561,8 @@ class _EasyTab(QWidget):
         url_l.addWidget(
             QLabel(
                 "Additional routes (optional, one URL per line) — alternate paths used "
-                "to find detours vs the primary route:"
+                "to find detours vs the primary. A reverse trip (B→A vs your A→B) gets no "
+                "detour GPX (geometry differs too much from OSRM); use the full-route file."
             )
         )
         self._extra_urls_edit = QPlainTextEdit()
@@ -1065,8 +1085,8 @@ class _MapsTab(QWidget):
         url_outer.addWidget(self._url_edit)
         url_outer.addWidget(
             QLabel(
-                "Additional routes (optional, one URL per line) — full alternate routes and "
-                "detour GPX files are named next to the primary file using its basename:"
+                "Additional routes (optional, one URL per line). Full routes and detours are "
+                "named next to the primary basename; reverse B→A trips get no detour GPX."
             )
         )
         self._extra_urls_edit = QPlainTextEdit()

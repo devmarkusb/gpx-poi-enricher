@@ -14,6 +14,7 @@ from gpx_poi_enricher.gpx_utils import (
     GPX_NS,
     add_waypoints_to_gpx,
     haversine_km,
+    min_distance_to_polyline_segments_km,
     min_distance_to_track_km,
     parse_gpx_trackpoints,
     remove_tracks_and_routes,
@@ -149,6 +150,19 @@ def test_min_distance_to_track_km_single_point_track():
     d = min_distance_to_track_km(pt[0], pt[1], track)
     expected = haversine_km(pt[0], pt[1], track[0][0], track[0][1])
     assert abs(d - expected) < 1e-6
+
+
+def test_polyline_segment_distance_beats_vertex_only_beside_long_edge():
+    """Perpendicular offset to a long span must use segment geometry, not endpoints only."""
+    # Two endpoints ~17 km apart; point beside the midpoint ~0.15 km from the segment.
+    track = [(48.0, 11.0), (48.0, 11.15)]
+    beside_mid = (48.00135, 11.075)
+    d_vertices = min_distance_to_track_km(beside_mid[0], beside_mid[1], track)
+    d_segments = min_distance_to_polyline_segments_km(beside_mid[0], beside_mid[1], track)
+    assert d_segments < d_vertices - 3.0, (
+        f"segment dist {d_segments} should be far below vertex-only {d_vertices}"
+    )
+    assert d_segments < 0.5
 
 
 # ---------------------------------------------------------------------------

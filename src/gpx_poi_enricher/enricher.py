@@ -40,6 +40,7 @@ def enrich_track(
     verbose: bool = False,
     http_session: requests.Session | None = None,
     cancel_event: threading.Event | None = None,
+    early_cancel_if_no_pois: bool = True,
 ) -> list[dict[str, Any]]:
     """Enrich a list of track points with nearby POIs from OpenStreetMap.
 
@@ -53,6 +54,9 @@ def enrich_track(
         progress_interval: Print progress to stderr every N seconds (0 = off).
         verbose: Print verbose Overpass error bodies to stderr.
         http_session: Optional pre-configured ``requests.Session``.
+        early_cancel_if_no_pois: If True (default), abort after a few Overpass batches
+            still yield zero POIs — suggests ``max_km`` or profile may be wrong.
+            Set False for secondary tracks (e.g. short detours) where empty batches are normal.
 
     Returns:
         Sorted list of POI dicts (keys: lat, lon, name, kind, distance_km, tags).
@@ -129,7 +133,8 @@ def enrich_track(
                 progress_state["pois_found"] = len(all_candidates)
 
                 if (
-                    batch_num >= _early_cancel_batches
+                    early_cancel_if_no_pois
+                    and batch_num >= _early_cancel_batches
                     and len(all_candidates) == 0
                     and batch_num < total_batches
                 ):
@@ -158,6 +163,7 @@ def enrich_gpx_file(
     output_path: str | pathlib.Path,
     profile_id: str,
     profiles_dir: pathlib.Path | None = None,
+    early_cancel_if_no_pois: bool = True,
     **kwargs: Any,
 ) -> list[dict[str, Any]]:
     """High-level convenience function: load GPX, enrich, write output GPX.
@@ -167,6 +173,7 @@ def enrich_gpx_file(
         output_path: Path for the output GPX file (waypoints only).
         profile_id: Profile identifier (e.g. ``"camping"``).
         profiles_dir: Optional override for the profiles directory.
+        early_cancel_if_no_pois: Passed to :func:`enrich_track` (see there).
         **kwargs: Forwarded to :func:`enrich_track`.
 
     Returns:
@@ -174,7 +181,12 @@ def enrich_gpx_file(
     """
     profile = load_profile(profile_id, profiles_dir)
     tree, root, track_points = parse_gpx_trackpoints(str(input_path))
-    items = enrich_track(track_points, profile, **kwargs)
+    items = enrich_track(
+        track_points,
+        profile,
+        early_cancel_if_no_pois=early_cancel_if_no_pois,
+        **kwargs,
+    )
 
     print(f"\nAdding {len(items)} waypoints.", file=sys.stderr)
     add_waypoints_to_gpx(root, items, symbol=profile.symbol, type_label=profile.description)
