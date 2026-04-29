@@ -17,7 +17,7 @@ from typing import Any
 
 import requests
 from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QFontMetrics
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -56,6 +56,7 @@ from .maps_to_gpx_cli import (
     parse_waypoints_from_url,
 )
 from .profiles import load_all_profiles
+from .route_detours import extract_detour_segments
 from .split_cli import add_split_waypoints
 
 # ── Stderr capture ─────────────────────────────────────────────────────────────
@@ -271,9 +272,9 @@ class _MapsWorker(QThread):
     finished = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, url: str, output_path: str, mode: str, track_name: str) -> None:
+    def __init__(self, urls: list[str], output_path: str, mode: str, track_name: str) -> None:
         super().__init__()
-        self._url = url
+        self._urls = urls
         self._output = output_path
         self._mode = mode
         self._track_name = track_name
@@ -287,29 +288,59 @@ class _MapsWorker(QThread):
         sys.stderr = capture  # type: ignore[assignment]
         session = requests.Session()
         try:
-            url = self._url
-            if "goo.gl" in url or "maps.app" in url:
-                self.log_message.emit("Expanding short URL…")
-                url = _expand_url(url, session)
-                self.log_message.emit(f"  → {url}")
+            routes: list[tuple[list[tuple[float, float, str]], list[tuple[float, float]]]] = []
+            for idx, raw_url in enumerate(self._urls):
+                url = raw_url.strip()
+                self.log_message.emit(f"Route {idx + 1}/{len(self._urls)}: parsing…")
+                if "goo.gl" in url or "maps.app" in url:
+                    self.log_message.emit("Expanding short URL…")
+                    url = _expand_url(url, session)
+                    self.log_message.emit(f"  → {url}")
 
-            raw = parse_waypoints_from_url(url)
-            if len(raw) < 2:
-                self.error.emit("Need at least 2 waypoints (origin + destination).")
-                return
-            self.log_message.emit(f"Found {len(raw)} waypoint(s) in URL.")
+                raw = parse_waypoints_from_url(url)
+                if len(raw) < 2:
+                    self.error.emit("Each URL needs at least 2 waypoints (origin + destination).")
+                    return
+                self.log_message.emit(f"Found {len(raw)} waypoint(s) in URL.")
 
-            self.log_message.emit("Resolving waypoints via Nominatim…")
-            waypoints = _resolve_waypoints(raw, session)
-            for lat, lon, label in waypoints:
-                self.log_message.emit(f"  {label} → {lat:.5f}, {lon:.5f}")
+                self.log_message.emit("Resolving waypoints via Nominatim…")
+                waypoints = _resolve_waypoints(raw, session)
+                for lat, lon, label in waypoints:
+                    self.log_message.emit(f"  {label} → {lat:.5f}, {lon:.5f}")
 
-            self.log_message.emit(f"Routing via OSRM ({self._mode})…")
-            track_points = _route_osrm(waypoints, self._mode, session)
-            self.log_message.emit(f"  {len(track_points)} track point(s) returned.")
+                self.log_message.emit(f"Routing via OSRM ({self._mode})…")
+                track_points = _route_osrm(waypoints, self._mode, session)
+                self.log_message.emit(f"  {len(track_points)} track point(s) returned.")
+                routes.append((waypoints, track_points))
 
-            _write_gpx(track_points, waypoints, self._output, self._track_name)
-            self.log_message.emit(f"Saved: {self._output}")
+            primary_wp, primary_pts = routes[0]
+            out_path = pathlib.Path(self._output)
+            out_dir = out_path.parent
+            stem = out_path.stem
+
+            _write_gpx(primary_pts, primary_wp, str(out_path), self._track_name)
+            self.log_message.emit(f"Saved primary: {out_path}")
+
+            if len(routes) > 1:
+                for j, (wpts, pts) in enumerate(routes[1:], start=2):
+                    alt_path = out_dir / f"{stem}-full-{j:02d}.gpx"
+                    alt_track = f"{_shorten_label(wpts[0][2])} – {_shorten_label(wpts[-1][2])}"
+                    _write_gpx(pts, wpts, str(alt_path), alt_track)
+                    self.log_message.emit(f"Saved alternate GPX: {alt_path}")
+
+                detour_n = 1
+                for _wpts, alt_pts in routes[1:]:
+                    segs = extract_detour_segments(alt_pts, primary_pts)
+                    for seg in segs:
+                        det_path = out_dir / f"{stem}-detour-{detour_n:02d}.gpx"
+                        _write_gpx(seg, [], str(det_path), f"Detour {detour_n}")
+                        self.log_message.emit(f"Saved detour: {det_path} ({len(seg)} points)")
+                        detour_n += 1
+                if detour_n == 1:
+                    self.log_message.emit(
+                        "No detour GPX files (alternates match primary within threshold)."
+                    )
+
             self.finished.emit()
         except Exception as exc:
             capture.flush()
@@ -323,21 +354,21 @@ class _EasyWorker(QThread):
     """Combined Maps→GPX + POI enrichment pipeline for Easy mode."""
 
     log_message = pyqtSignal(str)
-    track_ready = pyqtSignal(str)  # track file path
-    pois_done = pyqtSignal(str, int)  # poi file path, count
+    tracks_ready = pyqtSignal(object)  # list[str] — GPX paths passed to enrichment
+    pois_done = pyqtSignal(object)  # list[tuple[str, int]] — output GPX path + POI count each
     error = pyqtSignal(str)
     finished = pyqtSignal()
 
     def __init__(
         self,
-        url: str,
+        urls: list[str],
         profile_id: str,
         output_dir: str,
         cancel_event: threading.Event,
         quick: bool = False,
     ) -> None:
         super().__init__()
-        self._url = url
+        self._urls = urls
         self._profile_id = profile_id
         self._output_dir = output_dir
         self._cancel_event = cancel_event
@@ -351,68 +382,103 @@ class _EasyWorker(QThread):
         sys.stderr = capture  # type: ignore[assignment]
         session = requests.Session()
         try:
-            # Step 1: Expand short URLs
-            url = self._url
-            if "goo.gl" in url or "maps.app" in url:
-                self.log_message.emit("Expanding short URL…")
-                url = _expand_url(url, session)
-                self.log_message.emit(f"  → {url}")
+            routes: list[tuple[list[tuple[float, float, str]], list[tuple[float, float]]]] = []
+            for idx, raw_url in enumerate(self._urls):
+                if self._cancel_event.is_set():
+                    self.log_message.emit("Cancelled.")
+                    return
+                url = raw_url.strip()
+                self.log_message.emit(f"Route {idx + 1}/{len(self._urls)}: parsing…")
+                if "goo.gl" in url or "maps.app" in url:
+                    self.log_message.emit("Expanding short URL…")
+                    url = _expand_url(url, session)
+                    self.log_message.emit(f"  → {url}")
 
-            # Step 2: Parse waypoints
-            raw = parse_waypoints_from_url(url)
-            if len(raw) < 2:
-                self.error.emit("Need at least 2 waypoints (origin + destination).")
-                return
-            self.log_message.emit(f"Found {len(raw)} waypoint(s) in URL.")
+                raw = parse_waypoints_from_url(url)
+                if len(raw) < 2:
+                    self.error.emit("Each URL needs at least 2 waypoints (origin + destination).")
+                    return
+                self.log_message.emit(f"Found {len(raw)} waypoint(s) in URL.")
 
-            # Step 3: Resolve / geocode waypoints
-            self.log_message.emit("Resolving waypoints via Nominatim…")
-            waypoints = _resolve_waypoints(raw, session)
-            for lat, lon, label in waypoints:
-                self.log_message.emit(f"  {label} → {lat:.5f}, {lon:.5f}")
+                self.log_message.emit("Resolving waypoints via Nominatim…")
+                waypoints = _resolve_waypoints(raw, session)
+                for lat, lon, label in waypoints:
+                    self.log_message.emit(f"  {label} → {lat:.5f}, {lon:.5f}")
 
-            # Step 4: Derive file names from start/finish labels
-            start_label = _shorten_label(waypoints[0][2])
-            finish_label = _shorten_label(waypoints[-1][2])
-            base_name = f"{_safe_filename(start_label)}-{_safe_filename(finish_label)}"
-            out_dir = pathlib.Path(self._output_dir)
-            track_path = str(out_dir / f"{base_name}.gpx")
-            poi_path = str(out_dir / f"{base_name}-{self._profile_id}.gpx")
-            track_name = f"{start_label} – {finish_label}"
-
-            # Step 5: Create track GPX (skip if already exists)
-            if pathlib.Path(track_path).exists():
-                self.log_message.emit(f"Track already exists, reusing: {track_path}")
-            else:
                 self.log_message.emit("Routing via OSRM (driving)…")
                 track_points = _route_osrm(waypoints, "driving", session)
                 self.log_message.emit(f"  {len(track_points)} track point(s) returned.")
-                _write_gpx(track_points, waypoints, track_path, track_name)
-                self.log_message.emit(f"Track saved: {track_path}")
+                routes.append((waypoints, track_points))
 
-            self.track_ready.emit(track_path)
+            primary_wp, primary_pts = routes[0]
+            start_label = _shorten_label(primary_wp[0][2])
+            finish_label = _shorten_label(primary_wp[-1][2])
+            base_name = f"{_safe_filename(start_label)}-{_safe_filename(finish_label)}"
+            out_dir = pathlib.Path(self._output_dir)
+            track_path = out_dir / f"{base_name}.gpx"
+            track_name = f"{start_label} – {finish_label}"
+
+            if track_path.exists():
+                self.log_message.emit(f"Primary track already exists, reusing: {track_path}")
+            else:
+                _write_gpx(primary_pts, primary_wp, str(track_path), track_name)
+                self.log_message.emit(f"Primary track saved: {track_path}")
+
+            tracks_to_enrich: list[str] = [str(track_path)]
+
+            if len(routes) > 1:
+                for j, (wpts, pts) in enumerate(routes[1:], start=2):
+                    alt_path = out_dir / f"{base_name}-full-{j:02d}.gpx"
+                    alt_track = f"{_shorten_label(wpts[0][2])} – {_shorten_label(wpts[-1][2])}"
+                    _write_gpx(pts, wpts, str(alt_path), alt_track)
+                    self.log_message.emit(f"Alternate route GPX: {alt_path}")
+
+                detour_n = 1
+                for wpts, alt_pts in routes[1:]:
+                    segs = extract_detour_segments(alt_pts, primary_pts)
+                    for seg in segs:
+                        det_path = out_dir / f"{base_name}-detour-{detour_n:02d}.gpx"
+                        _write_gpx(seg, [], str(det_path), f"Detour {detour_n}")
+                        tracks_to_enrich.append(str(det_path))
+                        self.log_message.emit(f"Detour segment: {det_path} ({len(seg)} points)")
+                        detour_n += 1
+                if detour_n == 1:
+                    self.log_message.emit(
+                        "No detour segments above threshold (alternates match primary)."
+                    )
+
+            self.tracks_ready.emit(tracks_to_enrich)
 
             if self._cancel_event.is_set():
                 self.log_message.emit("Cancelled.")
                 return
 
-            # Step 6: Enrich with selected profile
-            self.log_message.emit(f"Enriching with '{self._profile_id}' profile…")
             enrich_kwargs: dict[str, Any] = {"progress_interval": 5.0}
             if self._quick:
                 enrich_kwargs.update(
                     {"sample_km": 500.0, "max_km": 1.0, "country_sample_km": 500.0}
                 )
-            items = enrich_gpx_file(
-                track_path,
-                poi_path,
-                self._profile_id,
-                cancel_event=self._cancel_event,
-                **enrich_kwargs,
-            )
+
+            poi_results: list[tuple[str, int]] = []
+            for tpath in tracks_to_enrich:
+                if self._cancel_event.is_set():
+                    self.log_message.emit("Cancelled.")
+                    return
+                stem = pathlib.Path(tpath).stem
+                poi_path = str(out_dir / f"{stem}-{self._profile_id}.gpx")
+                self.log_message.emit(f"Enriching: {tpath} → {poi_path}")
+                items = enrich_gpx_file(
+                    tpath,
+                    poi_path,
+                    self._profile_id,
+                    cancel_event=self._cancel_event,
+                    **enrich_kwargs,
+                )
+                poi_results.append((poi_path, len(items)))
+                self.log_message.emit(f"POIs saved: {poi_path} ({len(items)} POI(s))")
+
             capture.flush()
-            self.log_message.emit(f"POIs saved: {poi_path}  ({len(items)} POI(s))")
-            self.pois_done.emit(poi_path, len(items))
+            self.pois_done.emit(poi_results)
             self.finished.emit()
 
         except Exception as exc:
@@ -434,9 +500,8 @@ class _EasyTab(QWidget):
         self._worker: _EasyWorker | None = None
         self._cancel_event = threading.Event()
         self._profiles: dict = {}
-        self._track_path = ""
-        self._poi_path = ""
-        self._poi_count = 0
+        self._track_paths: list[str] = []
+        self._poi_results: list[tuple[str, int]] = []
         self._setup_ui()
         self._load_profiles()
 
@@ -445,15 +510,30 @@ class _EasyTab(QWidget):
         root.setSpacing(10)
         root.setContentsMargins(12, 12, 12, 12)
 
-        # URL input
-        url_box = QGroupBox("Google Maps directions URL")
+        # URLs: primary + optional additional (detour) routes
+        url_box = QGroupBox("Google Maps directions URLs")
         url_l = QVBoxLayout(url_box)
+        url_l.addWidget(QLabel("Primary route (required):"))
         self._url_edit = QLineEdit()
         self._url_edit.setPlaceholderText(
-            "Paste link here…  e.g.  https://www.google.com/maps/dir/Paris/Lyon/"
-            "  or  maps.app.goo.gl/…"
+            "https://www.google.com/maps/dir/…  or  maps.app.goo.gl/…"
         )
         url_l.addWidget(self._url_edit)
+        url_l.addWidget(
+            QLabel(
+                "Additional routes (optional, one URL per line) — alternate paths used "
+                "to find detours vs the primary route:"
+            )
+        )
+        self._extra_urls_edit = QPlainTextEdit()
+        self._extra_urls_edit.setPlaceholderText(
+            "Optional:\n"
+            "https://www.google.com/maps/dir/…/variant/\n"
+            "https://maps.app.goo.gl/…  (return trip or different itinerary)\n"
+        )
+        self._extra_urls_edit.setMaximumBlockCount(50)
+        self._extra_urls_edit.setFixedHeight(88)
+        url_l.addWidget(self._extra_urls_edit)
         root.addWidget(url_box)
 
         # Profile + output folder
@@ -520,12 +600,18 @@ class _EasyTab(QWidget):
             _append_log(self._log, f"Warning: could not load profiles: {exc}")
 
     def _run(self) -> None:
-        url = self._url_edit.text().strip()
+        primary = self._url_edit.text().strip()
+        extra_lines = [
+            ln.strip() for ln in self._extra_urls_edit.toPlainText().splitlines() if ln.strip()
+        ]
+        urls = [primary, *extra_lines]
         pid = self._profile_combo.currentData()
         out_dir = self._output_dir_edit.text().strip()
 
-        if not url:
-            QMessageBox.warning(self, "URL required", "Please enter a Google Maps directions URL.")
+        if not primary:
+            QMessageBox.warning(
+                self, "URL required", "Please enter a primary Google Maps directions URL."
+            )
             return
         if not pid:
             QMessageBox.warning(self, "Profile required", "Please select a profile.")
@@ -539,18 +625,17 @@ class _EasyTab(QWidget):
 
         self._log.clear()
         self._results_lbl.setText("—")
-        self._track_path = ""
-        self._poi_path = ""
-        self._poi_count = 0
+        self._track_paths = []
+        self._poi_results = []
         self._progress.setRange(0, 0)
         self._status_lbl.setText("Running…")
         self._run_btn.setEnabled(False)
         self._cancel_btn.setEnabled(True)
 
         self._cancel_event = threading.Event()
-        self._worker = _EasyWorker(url, pid, out_dir, self._cancel_event, self._quick)
+        self._worker = _EasyWorker(urls, pid, out_dir, self._cancel_event, self._quick)
         self._worker.log_message.connect(lambda t: _append_log(self._log, t))
-        self._worker.track_ready.connect(self._on_track_ready)
+        self._worker.tracks_ready.connect(self._on_tracks_ready)
         self._worker.pois_done.connect(self._on_pois_done)
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
@@ -561,27 +646,38 @@ class _EasyTab(QWidget):
         self._cancel_event.set()
         self._cancel_btn.setEnabled(False)
 
-    def _on_track_ready(self, path: str) -> None:
-        self._track_path = path
+    def _on_tracks_ready(self, paths: object) -> None:
+        self._track_paths = list(paths)  # type: ignore[arg-type]
         self._update_results()
 
-    def _on_pois_done(self, path: str, count: int) -> None:
-        self._poi_path = path
-        self._poi_count = count
+    def _on_pois_done(self, results: object) -> None:
+        self._poi_results = list(results)  # type: ignore[arg-type]
         self._update_results()
 
     def _update_results(self) -> None:
         lines: list[str] = []
-        if self._track_path:
-            lines.append(f"Track:  {self._track_path}")
-        if self._poi_path:
-            lines.append(f"POIs:   {self._poi_path}  ({self._poi_count} POI(s))")
+        if self._track_paths:
+            lines.append("Tracks to enrich:")
+            for p in self._track_paths:
+                lines.append(f"  {p}")
+        if self._poi_results:
+            lines.append("POI outputs:")
+            total = 0
+            for path, n in self._poi_results:
+                lines.append(f"  {path}  ({n} POI(s))")
+                total += n
+            if len(self._poi_results) > 1:
+                lines.append(f"  (sum of counts: {total})")
         self._results_lbl.setText("\n".join(lines) if lines else "—")
 
     def _on_done(self) -> None:
         self._progress.setRange(0, 1)
         self._progress.setValue(1)
-        self._status_lbl.setText(f"Done — {self._poi_count} POI(s) found.")
+        n_files = len(self._poi_results)
+        total_pois = sum(n for _, n in self._poi_results)
+        self._status_lbl.setText(
+            f"Done — {total_pois} POI(s) in {n_files} file(s)." if n_files else "Done."
+        )
         self._run_btn.setEnabled(True)
         self._cancel_btn.setEnabled(False)
 
@@ -632,6 +728,8 @@ class _EnricherTab(QWidget):
         self._profile_combo.currentIndexChanged.connect(self._on_profile_changed)
         self._profile_info = QLabel("—")
         self._profile_info.setWordWrap(True)
+        _pi_fm = QFontMetrics(self._profile_info.font())
+        self._profile_info.setMinimumHeight(_pi_fm.lineSpacing() * 3)
         pl.addRow("Profile:", self._profile_combo)
         pl.addRow("Defaults:", self._profile_info)
         root.addWidget(profile_box)
@@ -667,6 +765,23 @@ class _EnricherTab(QWidget):
         self._country_km.setToolTip("Minimum spacing between Nominatim reverse-geocode calls")
 
         self._verbose_cb = QCheckBox("Show verbose Overpass error bodies")
+
+        # Wide enough for special-value text ("profile default") without clipping
+        _fm = QFontMetrics(self._max_km.font())
+        _spin_pad = 56
+        _dbl_w = (
+            max(
+                _fm.horizontalAdvance("999.9 km"),
+                _fm.horizontalAdvance("profile default"),
+            )
+            + _spin_pad
+        )
+        self._max_km.setMinimumWidth(_dbl_w)
+        self._sample_km.setMinimumWidth(_dbl_w)
+        _int_w = (
+            max(_fm.horizontalAdvance("200"), _fm.horizontalAdvance("profile default")) + _spin_pad
+        )
+        self._batch_size.setMinimumWidth(_int_w)
 
         param_l.addRow("Max distance:", self._max_km)
         param_l.addRow("Sample interval:", self._sample_km)
@@ -907,7 +1022,7 @@ class _SplitTab(QWidget):
 
 
 class _MapsTab(QWidget):
-    """Convert a Google Maps directions URL to a routed GPX file."""
+    """Convert Google Maps directions URL(s) to routed GPX file(s), including detour splits."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -918,13 +1033,27 @@ class _MapsTab(QWidget):
         root = QVBoxLayout(self)
         root.setSpacing(6)
 
-        url_box = QGroupBox("Google Maps directions URL")
-        ul = QFormLayout(url_box)
+        url_box = QGroupBox("Google Maps directions URLs")
+        url_outer = QVBoxLayout(url_box)
+        url_outer.addWidget(QLabel("Primary route (required) — written to the output path below:"))
         self._url_edit = QLineEdit()
         self._url_edit.setPlaceholderText(
             "https://www.google.com/maps/dir/Paris/Lyon/Marseille/  or  maps.app.goo.gl/…"
         )
-        ul.addRow("URL:", self._url_edit)
+        url_outer.addWidget(self._url_edit)
+        url_outer.addWidget(
+            QLabel(
+                "Additional routes (optional, one URL per line) — full alternate routes and "
+                "detour GPX files are named next to the primary file using its basename:"
+            )
+        )
+        self._extra_urls_edit = QPlainTextEdit()
+        self._extra_urls_edit.setPlaceholderText(
+            "Optional detour / alternate directions:\nhttps://www.google.com/maps/dir/…\n"
+        )
+        self._extra_urls_edit.setMaximumBlockCount(50)
+        self._extra_urls_edit.setFixedHeight(80)
+        url_outer.addWidget(self._extra_urls_edit)
         root.addWidget(url_box)
 
         out_box = QGroupBox("Output")
@@ -936,7 +1065,7 @@ class _MapsTab(QWidget):
         self._name_edit = QLineEdit("Route")
         ol.addRow("Output GPX:", output_w)
         ol.addRow("Transport mode:", self._mode_combo)
-        ol.addRow("Track name:", self._name_edit)
+        ol.addRow("Primary track name:", self._name_edit)
         root.addWidget(out_box)
 
         self._run_btn = QPushButton("Convert to GPX")
@@ -953,13 +1082,17 @@ class _MapsTab(QWidget):
         root.addWidget(self._log, 1)
 
     def _run(self) -> None:
-        url = self._url_edit.text().strip()
+        primary = self._url_edit.text().strip()
+        extra_lines = [
+            ln.strip() for ln in self._extra_urls_edit.toPlainText().splitlines() if ln.strip()
+        ]
+        urls = [primary, *extra_lines]
         out = self._output_edit.text().strip()
         mode = self._mode_combo.currentData()
         name = self._name_edit.text().strip() or "Route"
 
-        if not url:
-            QMessageBox.warning(self, "URL required", "Please enter a Google Maps URL.")
+        if not primary:
+            QMessageBox.warning(self, "URL required", "Please enter a primary Google Maps URL.")
             return
         if not out:
             QMessageBox.warning(self, "Output required", "Please specify an output GPX file.")
@@ -969,7 +1102,7 @@ class _MapsTab(QWidget):
         self._progress.setRange(0, 0)
         self._run_btn.setEnabled(False)
 
-        self._worker = _MapsWorker(url, out, mode, name)
+        self._worker = _MapsWorker(urls, out, mode, name)
         self._worker.log_message.connect(lambda t: _append_log(self._log, t))
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
