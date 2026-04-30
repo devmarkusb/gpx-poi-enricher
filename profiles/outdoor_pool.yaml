@@ -2,9 +2,9 @@ id: outdoor_pool
 description: "Outdoor Pool, Adventure Pool, Thermal Bath"
 symbol: Swimming Area
 defaults:
-  max_km: 10.0
+  max_km: 5.0
   sample_km: 15.0
-  batch_size: 4
+  batch_size: 6
   retries: 2
 tags:
   - key: leisure
@@ -13,8 +13,4 @@ tags:
     value: water_park
   - key: amenity
     value: public_bath
-terms:
-  DE: ["Freibad", "Erlebnisbad", "Thermalbad", "Therme"]
-  FR: ["piscine", "parc aquatique", "thermes", "bains thermaux"]
-  ES: ["piscina", "parque acuático", "balneario", "termas"]
-  EN: ["outdoor pool", "water park", "thermal bath"]
+terms: {}
