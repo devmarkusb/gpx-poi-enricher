@@ -1,11 +1,22 @@
-"""CLI: add evenly-spaced split waypoints along a GPX track."""
+"""CLI: add evenly-spaced milestone waypoints along a GPX track."""
 
 from __future__ import annotations
 
+import pathlib
 import sys
 
 import gpxpy
 import gpxpy.gpx
+
+MILESTONE_DESCRIPTION = (
+    "Progress milestone along the track — useful as checkmarks for orientation "
+    "(fraction completed)."
+)
+
+
+def milestone_label(k: int, n: int) -> str:
+    """Waypoint name for the k-th of n equal parts along the track (e.g. ``3/10``)."""
+    return f"{k}/{n}"
 
 
 def _collect_track_points(gpx):
@@ -68,7 +79,25 @@ def _point_at_distance(points, cum, target):
     )
 
 
+def _append_milestone_waypoints(
+    gpx: gpxpy.gpx.GPX, points: list, cum: list[float], total: float, segments: int
+) -> None:
+    for k in range(1, segments + 1):
+        frac = k / segments
+        wpt = _point_at_distance(points, cum, total * frac)
+        wpt.name = milestone_label(k, segments)
+        wpt.description = f"{MILESTONE_DESCRIPTION} ({frac * 100:.1f}% along track.)"
+        gpx.waypoints.append(wpt)
+
+
+def milestone_sidecar_path(track_path: str | pathlib.Path) -> str:
+    """Waypoint-only companion GPX next to a track file: ``{stem}-milestones.gpx``."""
+    p = pathlib.Path(track_path)
+    return str(p.with_name(f"{p.stem}-milestones{p.suffix}"))
+
+
 def add_split_waypoints(input_file: str, output_file: str, segments: int = 10) -> None:
+    """Write a GPX containing only milestone waypoints (no track)."""
     with open(input_file, encoding="utf-8") as f:
         gpx = gpxpy.parse(f)
 
@@ -77,12 +106,7 @@ def add_split_waypoints(input_file: str, output_file: str, segments: int = 10) -
     total = cum[-1]
 
     out_gpx = gpxpy.gpx.GPX()
-    for i in range(1, segments):
-        frac = i / segments
-        wpt = _point_at_distance(points, cum, total * frac)
-        wpt.name = f"Split {i}"
-        wpt.description = f"{frac * 100:.1f}% of track length"
-        out_gpx.waypoints.append(wpt)
+    _append_milestone_waypoints(out_gpx, points, cum, total, segments)
 
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(out_gpx.to_xml())

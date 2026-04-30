@@ -5,7 +5,7 @@
     <!-- Tab labels -->
     <string name="tab_easy">Easy</string>
     <string name="tab_enricher">POI Enricher</string>
-    <string name="tab_split">Split Waypoints</string>
+    <string name="tab_split">Track milestones</string>
     <string name="tab_maps">Maps → GPX</string>
 
     <!-- Labels -->
@@ -18,17 +18,20 @@
     <!-- Hints -->
     <string name="hint_max_km">Max radius (km)</string>
     <string name="hint_sample_km">Sample spacing (km)</string>
-    <string name="hint_segments">Number of segments (min 2)</string>
+    <string name="hint_segments">Number of parts (min 2); milestones 1/N … N/N</string>
     <string name="hint_maps_url">Primary Google Maps directions URL</string>
     <string name="label_additional_route_urls">Additional routes (optional, one URL per line) — alternate itineraries used to detect detours vs the primary.</string>
     <string name="hint_extra_maps_urls">Extra Maps URLs…</string>
     <string name="hint_track_name">Track name in GPX</string>
 
     <!-- Easy mode -->
+    <string name="hint_easy_milestones">Track milestones (parts)</string>
+    <string name="helper_easy_milestones">0 = off. N ≥ 2 writes a separate waypoint-only «stem»-milestones.gpx (1/N … N/N) per route. Track GPX files stay unchanged.</string>
     <string name="btn_generate">Generate GPX</string>
     <string name="label_generated_files">Generated files</string>
     <string name="label_alternate_full_gpx">Alternate full-route GPX</string>
     <string name="label_detour_poi_outputs">Detour segment POIs</string>
+    <string name="label_milestone_only_gpx">Milestone-only GPX (no track)</string>
 
     <!-- Buttons -->
     <string name="btn_browse">Browse…</string>

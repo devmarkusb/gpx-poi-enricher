@@ -62,7 +62,7 @@ from .route_detours import (
     alternate_redundant_with_prior,
     extract_detour_segments,
 )
-from .split_cli import add_split_waypoints
+from .split_cli import add_split_waypoints, milestone_sidecar_path
 
 # ── Stderr capture ─────────────────────────────────────────────────────────────
 
@@ -407,6 +407,9 @@ class _EasyWorker(QThread):
 
     log_message = pyqtSignal(str)
     tracks_ready = pyqtSignal(object)  # list[str] — GPX paths passed to enrichment
+    milestone_paths_ready = pyqtSignal(
+        object
+    )  # list[str] — waypoint-only -milestones.gpx per track
     pois_done = pyqtSignal(object)  # list[tuple[str, int]] — output GPX path + POI count each
     error = pyqtSignal(str)
     finished = pyqtSignal()
@@ -418,6 +421,7 @@ class _EasyWorker(QThread):
         output_dir: str,
         cancel_event: threading.Event,
         quick: bool = False,
+        split_segments: int = 0,
     ) -> None:
         super().__init__()
         self._urls = urls
@@ -425,6 +429,7 @@ class _EasyWorker(QThread):
         self._output_dir = output_dir
         self._cancel_event = cancel_event
         self._quick = quick
+        self._split_segments = split_segments
 
     def run(self) -> None:
         emitter = _LogEmitter()
@@ -526,6 +531,18 @@ class _EasyWorker(QThread):
                         )
                     tracks_to_enrich.append(str(det_path))
 
+            milestone_output_paths: list[str] = []
+            if self._split_segments >= 2:
+                for tpath in tracks_to_enrich:
+                    mpath = milestone_sidecar_path(tpath)
+                    add_split_waypoints(tpath, mpath, self._split_segments)
+                    milestone_output_paths.append(mpath)
+                    self.log_message.emit(
+                        f"Wrote milestone-only GPX (1/{self._split_segments}–"
+                        f"{self._split_segments}/{self._split_segments}): {mpath}"
+                    )
+            self.milestone_paths_ready.emit(milestone_output_paths)
+
             self.tracks_ready.emit(tracks_to_enrich)
 
             if self._cancel_event.is_set():
@@ -584,6 +601,7 @@ class _EasyTab(QWidget):
         self._cancel_event = threading.Event()
         self._profiles: dict = {}
         self._track_paths: list[str] = []
+        self._milestone_paths: list[str] = []
         self._poi_results: list[tuple[str, int]] = []
         self._setup_ui()
         self._load_profiles()
@@ -625,6 +643,16 @@ class _EasyTab(QWidget):
         cfg_l = QFormLayout(cfg_box)
         self._profile_combo = QComboBox()
         cfg_l.addRow("Profile:", self._profile_combo)
+        self._milestone_parts = QSpinBox()
+        self._milestone_parts.setRange(0, 9999)
+        self._milestone_parts.setSpecialValueText("Off")
+        self._milestone_parts.setValue(0)
+        self._milestone_parts.setToolTip(
+            "Divide each generated route into N equal parts and write a separate waypoint-only "
+            "GPX named «stem»-milestones.gpx (1/N … N/N) next to each track. Useful as checkmarks "
+            "for orientation (fraction completed). 0 = off."
+        )
+        cfg_l.addRow("Track milestones (parts):", self._milestone_parts)
         dir_w, self._output_dir_edit = _dir_row("Select Output Folder", str(pathlib.Path.home()))
         cfg_l.addRow("Output folder:", dir_w)
         root.addWidget(cfg_box)
@@ -712,6 +740,7 @@ class _EasyTab(QWidget):
         self._log.clear()
         self._results_edit.setPlainText("—")
         self._track_paths = []
+        self._milestone_paths = []
         self._poi_results = []
         self._progress.setRange(0, 0)
         self._status_lbl.setText("Running…")
@@ -719,8 +748,16 @@ class _EasyTab(QWidget):
         self._cancel_btn.setEnabled(True)
 
         self._cancel_event = threading.Event()
-        self._worker = _EasyWorker(urls, pid, out_dir, self._cancel_event, self._quick)
+        self._worker = _EasyWorker(
+            urls,
+            pid,
+            out_dir,
+            self._cancel_event,
+            self._quick,
+            split_segments=self._milestone_parts.value(),
+        )
         self._worker.log_message.connect(lambda t: _append_log(self._log, t))
+        self._worker.milestone_paths_ready.connect(self._on_milestone_paths_ready)
         self._worker.tracks_ready.connect(self._on_tracks_ready)
         self._worker.pois_done.connect(self._on_pois_done)
         self._worker.finished.connect(self._on_done)
@@ -731,6 +768,10 @@ class _EasyTab(QWidget):
         _append_log(self._log, "Cancellation requested — waiting for current batch…")
         self._cancel_event.set()
         self._cancel_btn.setEnabled(False)
+
+    def _on_milestone_paths_ready(self, paths: object) -> None:
+        self._milestone_paths = list(paths)  # type: ignore[arg-type]
+        self._update_results()
 
     def _on_tracks_ready(self, paths: object) -> None:
         self._track_paths = list(paths)  # type: ignore[arg-type]
@@ -745,6 +786,10 @@ class _EasyTab(QWidget):
         if self._track_paths:
             lines.append("Tracks to enrich:")
             for p in self._track_paths:
+                lines.append(f"  {p}")
+        if self._milestone_paths:
+            lines.append("Milestone-only GPX (no track):")
+            for p in self._milestone_paths:
                 lines.append(f"  {p}")
         if self._poi_results:
             lines.append("POI outputs:")
@@ -782,6 +827,9 @@ class _EasyTab(QWidget):
             self._url_edit.setText(s.value("primary_url", "", type=str))
             self._extra_urls_edit.setPlainText(s.value("extra_urls", "", type=str))
             _set_combo_profile_id(self._profile_combo, s.value("profile_id", "", type=str))
+            mp = int(s.value("milestone_parts", 0, type=int))
+            mp = max(self._milestone_parts.minimum(), min(mp, self._milestone_parts.maximum()))
+            self._milestone_parts.setValue(mp)
             od = s.value("output_dir", "", type=str)
             if od:
                 self._output_dir_edit.setText(od)
@@ -795,6 +843,7 @@ class _EasyTab(QWidget):
             s.setValue("extra_urls", self._extra_urls_edit.toPlainText())
             pid = self._profile_combo.currentData()
             s.setValue("profile_id", pid if pid else "")
+            s.setValue("milestone_parts", self._milestone_parts.value())
             s.setValue("output_dir", self._output_dir_edit.text())
         finally:
             s.endGroup()
@@ -1104,12 +1153,13 @@ class _SplitTab(QWidget):
         self._segments.setRange(2, 9999)
         self._segments.setValue(10)
         self._segments.setToolTip(
-            "Number of equal-length segments — (N-1) waypoints will be inserted"
+            "Number of equal parts along the track; adds waypoint milestones named 1/N … N/N "
+            "(same idea as Easy mode). Output file contains only these waypoints."
         )
-        pl.addRow("Segments:", self._segments)
+        pl.addRow("Parts (milestones):", self._segments)
         root.addWidget(params_box)
 
-        self._run_btn = QPushButton("Add Split Waypoints")
+        self._run_btn = QPushButton("Add milestone waypoints")
         self._run_btn.setFixedHeight(34)
         root.addWidget(self._run_btn)
         self._run_btn.clicked.connect(self._run)
@@ -1356,7 +1406,7 @@ class MainWindow(QMainWindow):
         self._split_tab = _SplitTab()
         self._maps_tab = _MapsTab()
         self._expert_tabs.addTab(self._enricher_tab, "POI Enricher")
-        self._expert_tabs.addTab(self._split_tab, "Split Waypoints")
+        self._expert_tabs.addTab(self._split_tab, "Track milestones")
         self._expert_tabs.addTab(self._maps_tab, "Maps → GPX")
         self._stack.addWidget(self._expert_tabs)  # index 1
 

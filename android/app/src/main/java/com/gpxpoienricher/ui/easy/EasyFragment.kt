@@ -35,6 +35,7 @@ class EasyFragment : Fragment() {
         val ctx = requireContext()
         binding.editUrl.setText(GuiStatePreferences.readEasyPrimaryUrl(ctx))
         binding.editExtraUrls.setText(GuiStatePreferences.readEasyExtraUrls(ctx))
+        binding.editMilestoneParts.setText(GuiStatePreferences.readEasyMilestoneParts(ctx).toString())
 
         vm.profiles.observe(viewLifecycleOwner) { profiles ->
             val adapter = ArrayAdapter(
@@ -68,12 +69,23 @@ class EasyFragment : Fragment() {
         vm.result.observe(viewLifecycleOwner) { result ->
             if (result == null) {
                 binding.cardResults.visibility = View.GONE
+                binding.labelMilestoneSection.visibility = View.GONE
+                binding.textMilestonePaths.visibility = View.GONE
                 return@observe
             }
             binding.cardResults.visibility = View.VISIBLE
             val reusedNote = if (result.trackReused) "  (reused)" else ""
             binding.textTrackFile.text = result.trackPath + reusedNote
             binding.textPoiFile.text = "${result.poiPath}  (${result.poiCount} POI(s))"
+
+            if (result.milestonePaths.isNotEmpty()) {
+                binding.labelMilestoneSection.visibility = View.VISIBLE
+                binding.textMilestonePaths.visibility = View.VISIBLE
+                binding.textMilestonePaths.text = result.milestonePaths.joinToString("\n")
+            } else {
+                binding.labelMilestoneSection.visibility = View.GONE
+                binding.textMilestonePaths.visibility = View.GONE
+            }
 
             if (result.alternateFullPaths.isNotEmpty()) {
                 binding.labelAlternateFull.visibility = View.VISIBLE
@@ -106,7 +118,8 @@ class EasyFragment : Fragment() {
         binding.btnGenerate.setOnClickListener {
             val url = binding.editUrl.text?.toString() ?: ""
             val extras = binding.editExtraUrls.text?.toString() ?: ""
-            vm.generate(url, extras, binding.spinnerProfile.selectedItemPosition)
+            val parts = binding.editMilestoneParts.text?.toString()?.trim()?.toIntOrNull()?.coerceIn(0, 9999) ?: 0
+            vm.generate(url, extras, binding.spinnerProfile.selectedItemPosition, parts)
         }
 
         binding.btnCancel.setOnClickListener { vm.cancel() }
@@ -117,11 +130,14 @@ class EasyFragment : Fragment() {
         if (b != null) {
             val ctx = requireContext()
             val pid = vm.profileIdAtSpinnerIndex(b.spinnerProfile.selectedItemPosition)
+            val milestoneParts =
+                b.editMilestoneParts.text?.toString()?.trim()?.toIntOrNull()?.coerceIn(0, 9999) ?: 0
             GuiStatePreferences.writeEasy(
                 ctx,
                 b.editUrl.text?.toString() ?: "",
                 b.editExtraUrls.text?.toString() ?: "",
                 pid,
+                milestoneParts,
             )
         }
         super.onStop()

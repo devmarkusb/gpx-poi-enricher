@@ -71,7 +71,7 @@ class SplitViewModel(app: Application) : AndroidViewModel(app) {
                         )
 
                         ctx.contentResolver.openOutputStream(outputUri)!!.use { outTmp.inputStream().copyTo(it) }
-                        log("Done! Wrote ${segments - 1} split waypoints.")
+                        log("Done! Wrote $segments milestone waypoints (1/$segments–$segments/$segments).")
                         _snackbar.postValue("Done!")
                     } finally {
                         inTmp.delete(); outTmp.delete()

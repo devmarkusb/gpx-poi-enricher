@@ -28,6 +28,8 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
         val trackReused: Boolean,
         val alternateFullPaths: List<String> = emptyList(),
         val detourResults: List<DetourPoi> = emptyList(),
+        /** Waypoint-only ``-milestones.gpx`` files (no track), one per enriched route when enabled. */
+        val milestonePaths: List<String> = emptyList(),
     )
 
     private val _profiles = MutableLiveData<List<ProfileInfo>>(emptyList())
@@ -56,7 +58,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun generate(primaryUrl: String, extraUrlsMultiline: String, profileIndex: Int) {
+    fun generate(primaryUrl: String, extraUrlsMultiline: String, profileIndex: Int, milestoneParts: Int = 0) {
         val url = primaryUrl.trim()
         if (url.isBlank()) { _snackbar.value = "Enter a Google Maps URL"; return }
         val profile = _profiles.value?.getOrNull(profileIndex)
@@ -76,6 +78,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                     val outputDir = ctx.getExternalFilesDir("gpx") ?: ctx.filesDir.resolve("gpx")
                     outputDir.mkdirs()
 
+                    val parts = milestoneParts.coerceIn(0, 9999)
                     val resultJson = Python.getInstance().getModule("gpx_bridge").callAttr(
                         "easy_generate",
                         url,
@@ -84,6 +87,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                         GpxApp.extractProfiles().absolutePath,
                         outputDir.absolutePath,
                         LogCallback(::log),
+                        parts,
                     ).toString()
 
                     val obj = org.json.JSONObject(resultJson)
@@ -112,6 +116,14 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                             }
                         }
                     }
+                    val milestonesArr = obj.optJSONArray("milestone_paths")
+                    val milestones = buildList {
+                        if (milestonesArr != null) {
+                            for (i in 0 until milestonesArr.length()) {
+                                add(milestonesArr.getString(i))
+                            }
+                        }
+                    }
                     val res = Result(
                         trackPath = obj.getString("track_path"),
                         poiPath = obj.getString("poi_path"),
@@ -121,6 +133,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                         trackReused = obj.getBoolean("track_reused"),
                         alternateFullPaths = alternates,
                         detourResults = detours,
+                        milestonePaths = milestones,
                     )
                     _result.postValue(res)
                     val note = if (res.trackReused) "Track reused. " else ""
