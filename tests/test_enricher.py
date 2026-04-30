@@ -201,7 +201,6 @@ def test_enrich_track_respects_max_km(sample_track_points):
 
 
 @resp_lib.activate
-@resp_lib.activate
 def test_enrich_track_early_cancel_many_empty_batches():
     """After several empty Overpass batches, enrich_track must raise when early_cancel is on."""
     pts = [(48.0 + i * 0.02, 11.0) for i in range(150)]
