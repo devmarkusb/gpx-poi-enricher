@@ -25,20 +25,24 @@ OVERPASS_URLS = [
 USER_AGENT = "gpx-poi-enricher/0.1 (https://github.com/devmarkusb/gpx-poi-enricher)"
 
 
-def build_overpass_query(
+def _tag_condition(tag: dict[str, Any]) -> str:
+    key = tag["key"]
+    value = tag["value"]
+    condition = f'["{key}"]' if value == "*" else f'["{key}"="{value}"]'
+    extra = tag.get("and")
+    if extra:
+        for item in extra if isinstance(extra, list) else [extra]:
+            ek, ev = item["key"], item["value"]
+            condition += f'["{ek}"]' if ev == "*" else f'["{ek}"="{ev}"]'
+    return condition
+
+
+def _collect_tag_lines(
     points: list[tuple[float, float]],
-    max_km: float,
+    radius_m: int,
     profile: SearchProfile,
-    country_code: str,
-) -> str:
-    """Build an Overpass QL query for the given points, radius, and profile.
-
-    Combines tag-based selectors with optional name/description regex matches
-    derived from the profile's country-specific terms.
-    """
-    radius_m = int(max_km * 1000)
+) -> list[str]:
     lines: list[str] = []
-
     for lat, lon in points:
         selectors = [
             f"node(around:{radius_m},{lat},{lon})",
@@ -47,38 +51,95 @@ def build_overpass_query(
         ]
         for sel in selectors:
             for tag in profile.tags:
-                key = tag["key"]
-                value = tag["value"]
-                condition = f'["{key}"]' if value == "*" else f'["{key}"="{value}"]'
-                extra = tag.get("and")
-                if extra:
-                    for item in extra if isinstance(extra, list) else [extra]:
-                        ek, ev = item["key"], item["value"]
-                        condition += f'["{ek}"]' if ev == "*" else f'["{ek}"="{ev}"]'
-                lines.append(f"{sel}{condition};")
+                lines.append(f"{sel}{_tag_condition(tag)};")
+    return lines
 
+
+def _collect_term_lines(
+    points: list[tuple[float, float]],
+    radius_m: int,
+    profile: SearchProfile,
+    country_code: str,
+) -> list[str]:
     terms = profile.terms_for_country(country_code)
-    if terms:
-        regex = "|".join(re.escape(t) for t in terms)
-        for lat, lon in points:
-            selectors = [
-                f"node(around:{radius_m},{lat},{lon})",
-                f"way(around:{radius_m},{lat},{lon})",
-                f"relation(around:{radius_m},{lat},{lon})",
-            ]
-            for sel in selectors:
-                lines.append(f'{sel}["name"~"{regex}", i];')
-                lines.append(f'{sel}["description"~"{regex}", i];')
-                lines.append(f'{sel}["operator"~"{regex}", i];')
+    if not terms:
+        return []
+    regex = "|".join(re.escape(t) for t in terms)
+    lines: list[str] = []
+    for lat, lon in points:
+        selectors = [
+            f"node(around:{radius_m},{lat},{lon})",
+            f"way(around:{radius_m},{lat},{lon})",
+            f"relation(around:{radius_m},{lat},{lon})",
+        ]
+        for sel in selectors:
+            lines.append(f'{sel}["name"~"{regex}", i];')
+            lines.append(f'{sel}["description"~"{regex}", i];')
+            lines.append(f'{sel}["operator"~"{regex}", i];')
+    return lines
 
-    if not lines:
+
+def _wrap_overpass(lines: list[str]) -> str:
+    return "[out:json][timeout:180];\n(\n" + "\n".join(lines) + "\n);\nout center tags;\n"
+
+
+def build_overpass_queries(
+    points: list[tuple[float, float]],
+    max_km: float,
+    profile: SearchProfile,
+    country_code: str,
+) -> list[str]:
+    """Build one or two Overpass QL queries for *profile*.
+
+    When both OSM tag filters and search terms apply, emits **two** queries:
+    typed tag selectors first, then separate name/description/operator regex
+    selectors. A single combined request would union extremely broad regex
+    branches with narrow tag branches; servers often time out or drop the
+    whole response, yielding no POIs despite valid tag matches.
+
+    Returns:
+        One string if only tags or only terms apply; two strings when both apply.
+    """
+    radius_m = int(max_km * 1000)
+    tag_lines = _collect_tag_lines(points, radius_m, profile)
+    term_lines = _collect_term_lines(points, radius_m, profile, country_code)
+
+    queries: list[str] = []
+    if tag_lines:
+        queries.append(_wrap_overpass(tag_lines))
+    if term_lines:
+        queries.append(_wrap_overpass(term_lines))
+
+    if not queries:
         raise ValueError(
             f"No Overpass query could be built for profile '{profile.id}' "
             f"(no tag filters and no terms for country '{country_code}'). "
             "Add non-empty 'terms' in the profile YAML, or OSM tag filters."
         )
 
-    return "[out:json][timeout:180];\n(\n" + "\n".join(lines) + "\n);\nout center tags;\n"
+    return queries
+
+
+def build_overpass_query(
+    points: list[tuple[float, float]],
+    max_km: float,
+    profile: SearchProfile,
+    country_code: str,
+) -> str:
+    """Build a single Overpass QL query (tags-only or terms-only).
+
+    Raises:
+        ValueError: If the profile needs both tags and terms — use
+            :func:`build_overpass_queries` instead.
+    """
+    queries = build_overpass_queries(points, max_km, profile, country_code)
+    if len(queries) != 1:
+        raise ValueError(
+            f"Profile '{profile.id}' uses both tags and terms for country "
+            f"'{country_code}'; use build_overpass_queries() to run separate "
+            "Overpass requests."
+        )
+    return queries[0]
 
 
 def query_overpass(

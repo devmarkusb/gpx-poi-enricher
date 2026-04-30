@@ -18,7 +18,7 @@ from .gpx_utils import (
     remove_tracks_and_routes,
     sample_track_by_distance,
 )
-from .overpass import build_overpass_query, extract_candidates, query_overpass
+from .overpass import build_overpass_queries, extract_candidates, query_overpass
 from .profiles import SearchProfile, load_profile
 from .progress import ProgressHeartbeat
 
@@ -26,6 +26,19 @@ from .progress import ProgressHeartbeat
 def _chunked(seq: list, size: int):
     for i in range(0, len(seq), size):
         yield seq[i : i + size]
+
+
+def _dedupe_overpass_elements(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep first occurrence per (type, id); preserves stable order."""
+    seen: set[tuple[Any, Any]] = set()
+    out: list[dict[str, Any]] = []
+    for el in elements:
+        key = (el.get("type"), el.get("id"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(el)
+    return out
 
 
 def enrich_track(
@@ -117,14 +130,17 @@ def enrich_track(
                     {"phase": "overpass", "country": cc, "batch": (batch_num, total_batches)}
                 )
 
-                query = build_overpass_query(batch, _max_km, profile, cc)
-                data = query_overpass(
-                    session,
-                    query,
-                    max_retries=profile.retries,
-                    verbose=verbose,
-                    progress=progress_state,
-                )
+                merged_elements: list[dict[str, Any]] = []
+                for query in build_overpass_queries(batch, _max_km, profile, cc):
+                    data = query_overpass(
+                        session,
+                        query,
+                        max_retries=profile.retries,
+                        verbose=verbose,
+                        progress=progress_state,
+                    )
+                    merged_elements.extend(data.get("elements") or [])
+                data = {"elements": _dedupe_overpass_elements(merged_elements)}
                 for item in extract_candidates(data, track_points, _max_km, profile):
                     key = (round(item["lat"], 5), round(item["lon"], 5))
                     if key not in all_candidates:
