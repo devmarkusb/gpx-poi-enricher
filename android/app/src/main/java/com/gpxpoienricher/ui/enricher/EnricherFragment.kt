@@ -1,5 +1,6 @@
 package com.gpxpoienricher.ui.enricher
 
+import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -9,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import com.google.android.material.snackbar.Snackbar
+import com.gpxpoienricher.data.GuiStatePreferences
 import com.gpxpoienricher.databinding.FragmentEnricherBinding
 
 class EnricherFragment : Fragment() {
@@ -16,6 +18,8 @@ class EnricherFragment : Fragment() {
     private var _binding: FragmentEnricherBinding? = null
     private val binding get() = _binding!!
     private val viewModel: EnricherViewModel by viewModels()
+
+    private var profileFromPrefsApplied = false
 
     private val openInput = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
@@ -43,11 +47,30 @@ class EnricherFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        profileFromPrefsApplied = false
+        val ctx = requireContext()
+        binding.editMaxKm.setText(GuiStatePreferences.readEnricherMaxKm(ctx))
+        binding.editSampleKm.setText(GuiStatePreferences.readEnricherSampleKm(ctx))
+        GuiStatePreferences.readEnricherInputUri(ctx)?.let { s ->
+            runCatching { Uri.parse(s) }.getOrNull()?.let { viewModel.setInputFile(it) }
+        }
+        GuiStatePreferences.readEnricherOutputUri(ctx)?.let { s ->
+            runCatching { Uri.parse(s) }.getOrNull()?.let { viewModel.setOutputFile(it) }
+        }
+
         viewModel.profiles.observe(viewLifecycleOwner) { profiles ->
             val names = profiles.map { it.description }
             binding.profileSpinner.adapter = ArrayAdapter(
                 requireContext(), android.R.layout.simple_spinner_item, names
             ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+            if (!profileFromPrefsApplied && profiles.isNotEmpty()) {
+                profileFromPrefsApplied = true
+                val want = GuiStatePreferences.readEnricherProfileId(ctx)
+                if (!want.isNullOrBlank()) {
+                    val idx = profiles.indexOfFirst { it.id == want }
+                    if (idx >= 0) binding.profileSpinner.setSelection(idx)
+                }
+            }
         }
 
         viewModel.inputName.observe(viewLifecycleOwner) { name ->
@@ -91,6 +114,22 @@ class EnricherFragment : Fragment() {
         }
 
         binding.btnCancel.setOnClickListener { viewModel.cancel() }
+    }
+
+    override fun onStop() {
+        val b = _binding
+        if (b != null) {
+            val ctx = requireContext()
+            GuiStatePreferences.writeEnricher(
+                ctx,
+                viewModel.snapshotInputUri()?.toString(),
+                viewModel.snapshotOutputUri()?.toString(),
+                viewModel.profileIdAtSpinnerIndex(b.profileSpinner.selectedItemPosition),
+                b.editMaxKm.text?.toString() ?: "",
+                b.editSampleKm.text?.toString() ?: "",
+            )
+        }
+        super.onStop()
     }
 
     override fun onDestroyView() {

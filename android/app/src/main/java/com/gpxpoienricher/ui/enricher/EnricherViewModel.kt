@@ -114,6 +114,12 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearSnackbar() { _snackbar.value = null }
 
+    fun profileIdAtSpinnerIndex(index: Int): String? = _profiles.value?.getOrNull(index)?.id
+
+    fun snapshotInputUri(): Uri? = _inputUri.value
+
+    fun snapshotOutputUri(): Uri? = _outputUri.value
+
     private fun fileName(uri: Uri): String? =
         getApplication<Application>().contentResolver.query(uri, null, null, null, null)?.use {
             val idx = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)

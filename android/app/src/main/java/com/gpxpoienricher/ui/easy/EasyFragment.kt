@@ -8,6 +8,7 @@ import android.widget.ArrayAdapter
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import com.google.android.material.snackbar.Snackbar
+import com.gpxpoienricher.data.GuiStatePreferences
 import com.gpxpoienricher.databinding.FragmentEasyBinding
 
 class EasyFragment : Fragment() {
@@ -15,6 +16,8 @@ class EasyFragment : Fragment() {
     private var _binding: FragmentEasyBinding? = null
     private val binding get() = _binding!!
     private val vm: EasyViewModel by viewModels()
+
+    private var profileFromPrefsApplied = false
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -28,6 +31,11 @@ class EasyFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        profileFromPrefsApplied = false
+        val ctx = requireContext()
+        binding.editUrl.setText(GuiStatePreferences.readEasyPrimaryUrl(ctx))
+        binding.editExtraUrls.setText(GuiStatePreferences.readEasyExtraUrls(ctx))
+
         vm.profiles.observe(viewLifecycleOwner) { profiles ->
             val adapter = ArrayAdapter(
                 requireContext(),
@@ -36,6 +44,14 @@ class EasyFragment : Fragment() {
             )
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
             binding.spinnerProfile.adapter = adapter
+            if (!profileFromPrefsApplied && profiles.isNotEmpty()) {
+                profileFromPrefsApplied = true
+                val want = GuiStatePreferences.readEasyProfileId(ctx)
+                if (!want.isNullOrBlank()) {
+                    val idx = profiles.indexOfFirst { it.id == want }
+                    if (idx >= 0) binding.spinnerProfile.setSelection(idx)
+                }
+            }
         }
 
         vm.isRunning.observe(viewLifecycleOwner) { running ->
@@ -94,6 +110,21 @@ class EasyFragment : Fragment() {
         }
 
         binding.btnCancel.setOnClickListener { vm.cancel() }
+    }
+
+    override fun onStop() {
+        val b = _binding
+        if (b != null) {
+            val ctx = requireContext()
+            val pid = vm.profileIdAtSpinnerIndex(b.spinnerProfile.selectedItemPosition)
+            GuiStatePreferences.writeEasy(
+                ctx,
+                b.editUrl.text?.toString() ?: "",
+                b.editExtraUrls.text?.toString() ?: "",
+                pid,
+            )
+        }
+        super.onStop()
     }
 
     override fun onDestroyView() {
