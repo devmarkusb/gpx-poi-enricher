@@ -201,17 +201,56 @@ def test_enrich_track_respects_max_km(sample_track_points):
 
 
 @resp_lib.activate
+@resp_lib.activate
+def test_enrich_track_early_cancel_many_empty_batches():
+    """After several empty Overpass batches, enrich_track must raise when early_cancel is on."""
+    pts = [(48.0 + i * 0.02, 11.0) for i in range(150)]
+    for _ in range(300):
+        resp_lib.add(resp_lib.GET, NOMINATIM_URL, json=_nominatim_json("de"), status=200)
+    for _ in range(200):
+        resp_lib.add(resp_lib.POST, OVERPASS_URL, json=_overpass_empty_response(), status=200)
+    profile = _make_profile(sample_km=1.0, batch_size=3, retries=1)
+    with (
+        patch("gpx_poi_enricher.geocoding.time.sleep"),
+        patch("gpx_poi_enricher.enricher.time.sleep"),
+        patch("gpx_poi_enricher.overpass.time.sleep"),
+    ):
+        with pytest.raises(RuntimeError, match="No POIs found"):
+            enrich_track(pts, profile, progress_interval=0, early_cancel_if_no_pois=True)
+
+
+@resp_lib.activate
+def test_enrich_track_no_early_cancel_runs_all_batches_when_disabled():
+    """With early_cancel disabled, enrich_track must finish all batches without raising."""
+    pts = [(48.0 + i * 0.02, 11.0) for i in range(24)]
+    for _ in range(120):
+        resp_lib.add(resp_lib.GET, NOMINATIM_URL, json=_nominatim_json("de"), status=200)
+    for _ in range(40):
+        resp_lib.add(resp_lib.POST, OVERPASS_URL, json=_overpass_empty_response(), status=200)
+    profile = _make_profile(sample_km=1.0, batch_size=3, retries=1)
+    with (
+        patch("gpx_poi_enricher.geocoding.time.sleep"),
+        patch("gpx_poi_enricher.enricher.time.sleep"),
+        patch("gpx_poi_enricher.overpass.time.sleep"),
+    ):
+        result = enrich_track(pts, profile, progress_interval=0, early_cancel_if_no_pois=False)
+    assert result == []
+
+
+@resp_lib.activate
 def test_enrich_track_no_country_falls_back_to_en(sample_track_points):
     """If Nominatim returns empty string for every point, enrich_track must fall
     back to using 'EN' as the single country segment and still complete."""
     # Nominatim returns empty address so country_code is empty.
     resp_lib.add(resp_lib.GET, NOMINATIM_URL, json={"address": {}}, status=200)
-    resp_lib.add(resp_lib.POST, OVERPASS_URL, json=_overpass_empty_response(), status=200)
+    for _ in range(20):
+        resp_lib.add(resp_lib.POST, OVERPASS_URL, json=_overpass_empty_response(), status=200)
 
     profile = _make_profile()
     with (
         patch("gpx_poi_enricher.geocoding.time.sleep"),
         patch("gpx_poi_enricher.enricher.time.sleep"),
+        patch("gpx_poi_enricher.overpass.time.sleep"),
     ):
         # Should not raise; should return an empty list when no POIs found.
         result = enrich_track(
