@@ -305,6 +305,35 @@ def _write_gpx(
         f.write(gpx.to_xml())
 
 
+def _write_gpx_segments(
+    track_segments: list[list[tuple[float, float]]],
+    waypoints: list[tuple[float, float, str]],
+    output_path: str,
+    track_name: str,
+) -> None:
+    """Write one GPX track with multiple ``trkseg`` elements (disjoint geometry)."""
+    gpx = gpxpy.gpx.GPX()
+
+    for lat, lon, name in waypoints:
+        gpx.waypoints.append(gpxpy.gpx.GPXWaypoint(latitude=lat, longitude=lon, name=name))
+
+    track = gpxpy.gpx.GPXTrack(name=track_name)
+    gpx.tracks.append(track)
+    for seg_pts in track_segments:
+        if not seg_pts:
+            continue
+        segment = gpxpy.gpx.GPXTrackSegment()
+        track.segments.append(segment)
+        for lat, lon in seg_pts:
+            segment.points.append(gpxpy.gpx.GPXTrackPoint(latitude=lat, longitude=lon))
+
+    if not track.segments:
+        raise ValueError("track_segments produced no non-empty segments")
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(gpx.to_xml())
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         prog="maps-to-gpx",

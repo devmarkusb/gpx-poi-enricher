@@ -18,13 +18,14 @@ from gpx_poi_enricher.maps_to_gpx_cli import (
     _resolve_waypoints,
     _route_osrm,
     _write_gpx,
+    _write_gpx_segments,
     parse_waypoints_from_url,
 )
 from gpx_poi_enricher.profiles import load_all_profiles
 from gpx_poi_enricher.route_detours import (
     alternate_is_reverse_itinerary,
     alternate_redundant_with_prior,
-    detour_span_for_alternate,
+    extract_detour_segments,
 )
 from gpx_poi_enricher.split_cli import add_split_waypoints
 
@@ -250,8 +251,8 @@ def easy_generate(
                     prior_alt_pts.append(alt_pts)
                     continue
                 prior_alt_pts.append(alt_pts)
-                span = detour_span_for_alternate(alt_pts, primary_pts)
-                if not span:
+                detour_segs = extract_detour_segments(alt_pts, primary_pts)
+                if not detour_segs:
                     sys.stderr.write(
                         f"Alternate {j}: no detour track (on primary within threshold).\n"
                     )
@@ -261,8 +262,11 @@ def easy_generate(
                 if det_path.exists():
                     sys.stderr.write(f"Detour GPX already exists, reusing: {det_path}\n")
                 else:
-                    _write_gpx(span, [], det_str, f"Detour (alternate {j})")
-                    sys.stderr.write(f"Detour GPX: {det_path} ({len(span)} points)\n")
+                    _write_gpx_segments(detour_segs, [], det_str, f"Detour (alternate {j})")
+                    n_pts = sum(len(s) for s in detour_segs)
+                    sys.stderr.write(
+                        f"Detour GPX: {det_path} ({len(detour_segs)} segments, {n_pts} points)\n"
+                    )
                 tracks_to_enrich.append(det_str)
 
         if _cancel_event.is_set():

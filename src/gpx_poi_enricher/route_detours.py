@@ -1,10 +1,10 @@
 """Extract detour geometry from multiple routed polylines.
 
 Given a primary route (reference) and alternate routes, finds where alternates
-leave the reference farther than a threshold. For output we collapse each
-alternate into a single contiguous span (one GPX per alternate) instead of many
-tiny fragments. Routes that match the primary or an earlier alternate (including
-reverse) can be skipped as redundant.
+leave the reference farther than a threshold. Each alternate becomes **one GPX
+file** whose track has **one ``trkseg`` per disjoint deviation** (no long
+bridges along shared geometry). Routes that match the primary or an earlier
+alternate (including reverse) can be skipped as redundant.
 """
 
 from __future__ import annotations
@@ -105,42 +105,6 @@ def extract_detour_segments(
         out.append(chunk)
 
     return out
-
-
-def detour_span_for_alternate(
-    alternate: list[tuple[float, float]],
-    reference: list[tuple[float, float]],
-    *,
-    near_threshold_km: float = 0.055,
-    min_detour_km: float = 0.35,
-    gap_merge_km: float = 0.12,
-    min_points: int = 6,
-) -> list[tuple[float, float]] | None:
-    """Single contiguous slice of *alternate* covering all deviation from *reference*.
-
-    Returns one polyline per alternate URL (indices ``min … max`` along that route)
-    so callers emit one ``-detour-NN.gpx`` per alternate instead of many fragments.
-    ``None`` if there is no substantial deviation.
-    """
-    merged_ranges = _far_ranges_merged(
-        alternate,
-        reference,
-        near_threshold_km=near_threshold_km,
-        gap_merge_km=gap_merge_km,
-    )
-    if not merged_ranges:
-        return None
-
-    total_far_km = sum(polyline_length_km(alternate[lo:hi]) for lo, hi in merged_ranges)
-    if total_far_km < min_detour_km:
-        return None
-
-    lo_span = min(lo for lo, _ in merged_ranges)
-    hi_span = max(hi for _, hi in merged_ranges)
-    span = alternate[lo_span:hi_span]
-    if len(span) < min_points:
-        return None
-    return span
 
 
 def alternate_is_reverse_itinerary(

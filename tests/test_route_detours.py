@@ -5,7 +5,6 @@ from __future__ import annotations
 from gpx_poi_enricher.route_detours import (
     alternate_is_reverse_itinerary,
     alternate_redundant_with_prior,
-    detour_span_for_alternate,
     extract_detour_segments,
     polyline_length_km,
 )
@@ -43,11 +42,11 @@ def test_extract_detour_parallel_far_route_nonempty():
     assert sum(polyline_length_km(s) for s in segs) > 5.0
 
 
-def test_detour_span_single_polyline_for_parallel_alternate():
-    """One merged span per alternate (not one GPX per fragment)."""
+def test_detour_segments_parallel_route_single_segment():
+    """Fully offset alternate yields one chunk (one GPX trkseg when written)."""
     ref = _straight_line(48.0, 11.0, 60, 0.35)
     alt = [(lat, lon + 0.015) for lat, lon in ref]
-    span = detour_span_for_alternate(
+    segs = extract_detour_segments(
         alt,
         ref,
         near_threshold_km=0.05,
@@ -55,8 +54,28 @@ def test_detour_span_single_polyline_for_parallel_alternate():
         gap_merge_km=0.12,
         min_points=5,
     )
-    assert span is not None
-    assert len(span) >= 5
+    assert len(segs) == 1
+    assert sum(polyline_length_km(s) for s in segs) > 5.0
+
+
+def test_detour_segments_two_disjoint_deviations():
+    """Alternate matches primary in the middle → two far islands → two segments."""
+    ref = _straight_line(48.0, 11.0, 120, 0.35)
+    alt: list[tuple[float, float]] = []
+    for i, (lat, lon) in enumerate(ref):
+        if i < 28 or i >= 92:
+            alt.append((lat, lon + 0.015))
+        else:
+            alt.append((lat, lon))
+    segs = extract_detour_segments(
+        alt,
+        ref,
+        near_threshold_km=0.05,
+        min_detour_km=0.15,
+        gap_merge_km=0.12,
+        min_points=5,
+    )
+    assert len(segs) >= 2
 
 
 def test_redundant_reverse_matches_primary():
