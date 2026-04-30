@@ -155,6 +155,9 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearSnackbar() { _snackbar.value = null }
 
+    /** For persisting the selected profile across sessions. */
+    fun profileIdAtSpinnerIndex(index: Int): String? = _profiles.value?.getOrNull(index)?.id
+
     private fun parseProfiles(json: String): List<ProfileInfo> {
         val arr = org.json.JSONArray(json)
         return (0 until arr.length())

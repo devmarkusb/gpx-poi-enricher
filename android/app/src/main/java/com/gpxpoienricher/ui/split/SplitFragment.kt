@@ -1,5 +1,6 @@
 package com.gpxpoienricher.ui.split
 
+import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -8,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import com.google.android.material.snackbar.Snackbar
+import com.gpxpoienricher.data.GuiStatePreferences
 import com.gpxpoienricher.databinding.FragmentSplitBinding
 
 class SplitFragment : Fragment() {
@@ -41,6 +43,15 @@ class SplitFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+
+        val ctx = requireContext()
+        binding.editSegments.setText(GuiStatePreferences.readSplitSegments(ctx))
+        GuiStatePreferences.readSplitInputUri(ctx)?.let { s ->
+            runCatching { Uri.parse(s) }.getOrNull()?.let { viewModel.setInputFile(it) }
+        }
+        GuiStatePreferences.readSplitOutputUri(ctx)?.let { s ->
+            runCatching { Uri.parse(s) }.getOrNull()?.let { viewModel.setOutputFile(it) }
+        }
 
         viewModel.inputName.observe(viewLifecycleOwner) { name ->
             binding.inputFileName.text = name ?: "No file selected"
@@ -82,6 +93,19 @@ class SplitFragment : Fragment() {
         }
 
         binding.btnCancel.setOnClickListener { viewModel.cancel() }
+    }
+
+    override fun onStop() {
+        val b = _binding
+        if (b != null) {
+            GuiStatePreferences.writeSplit(
+                requireContext(),
+                viewModel.snapshotInputUri()?.toString(),
+                viewModel.snapshotOutputUri()?.toString(),
+                b.editSegments.text?.toString() ?: "10",
+            )
+        }
+        super.onStop()
     }
 
     override fun onDestroyView() {

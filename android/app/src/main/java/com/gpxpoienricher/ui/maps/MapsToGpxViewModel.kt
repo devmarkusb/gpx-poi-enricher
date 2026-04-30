@@ -79,6 +79,8 @@ class MapsToGpxViewModel(app: Application) : AndroidViewModel(app) {
     fun cancel() { job?.cancel() }
     fun clearSnackbar() { _snackbar.value = null }
 
+    fun snapshotOutputUri(): Uri? = _outputUri.value
+
     private fun fileName(uri: Uri): String? =
         getApplication<Application>().contentResolver.query(uri, null, null, null, null)?.use {
             val idx = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
