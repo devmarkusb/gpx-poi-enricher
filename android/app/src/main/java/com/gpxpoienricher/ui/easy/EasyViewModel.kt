@@ -17,6 +17,8 @@ import kotlinx.coroutines.withContext
 
 class EasyViewModel(app: Application) : AndroidViewModel(app) {
 
+    data class DetourPoi(val trackPath: String, val poiPath: String, val poiCount: Int)
+
     data class Result(
         val trackPath: String,
         val poiPath: String,
@@ -24,6 +26,8 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
         val finish: String,
         val poiCount: Int,
         val trackReused: Boolean,
+        val alternateFullPaths: List<String> = emptyList(),
+        val detourResults: List<DetourPoi> = emptyList(),
     )
 
     private val _profiles = MutableLiveData<List<ProfileInfo>>(emptyList())
@@ -52,7 +56,8 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun generate(url: String, profileIndex: Int) {
+    fun generate(primaryUrl: String, extraUrlsMultiline: String, profileIndex: Int) {
+        val url = primaryUrl.trim()
         if (url.isBlank()) { _snackbar.value = "Enter a Google Maps URL"; return }
         val profile = _profiles.value?.getOrNull(profileIndex)
             ?: run { _snackbar.value = "No profile selected"; return }
@@ -73,7 +78,8 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
 
                     val resultJson = Python.getInstance().getModule("gpx_bridge").callAttr(
                         "easy_generate",
-                        url.trim(),
+                        url,
+                        extraUrlsMultiline,
                         profile.id,
                         GpxApp.extractProfiles().absolutePath,
                         outputDir.absolutePath,
@@ -83,6 +89,29 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                     val obj = org.json.JSONObject(resultJson)
                     if (obj.optBoolean("cancelled", false)) return@withContext
 
+                    val alternatesArr = obj.optJSONArray("alternate_full_paths")
+                    val alternates = buildList {
+                        if (alternatesArr != null) {
+                            for (i in 0 until alternatesArr.length()) {
+                                add(alternatesArr.getString(i))
+                            }
+                        }
+                    }
+                    val detoursArr = obj.optJSONArray("detour_results")
+                    val detours = buildList {
+                        if (detoursArr != null) {
+                            for (i in 0 until detoursArr.length()) {
+                                val d = detoursArr.getJSONObject(i)
+                                add(
+                                    DetourPoi(
+                                        trackPath = d.getString("track_path"),
+                                        poiPath = d.getString("poi_path"),
+                                        poiCount = d.getInt("poi_count"),
+                                    ),
+                                )
+                            }
+                        }
+                    }
                     val res = Result(
                         trackPath = obj.getString("track_path"),
                         poiPath = obj.getString("poi_path"),
@@ -90,10 +119,21 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                         finish = obj.getString("finish"),
                         poiCount = obj.getInt("poi_count"),
                         trackReused = obj.getBoolean("track_reused"),
+                        alternateFullPaths = alternates,
+                        detourResults = detours,
                     )
                     _result.postValue(res)
                     val note = if (res.trackReused) "Track reused. " else ""
-                    _snackbar.postValue("Done! ${note}${res.poiCount} POI(s) found.")
+                    val extraPois = res.detourResults.sumOf { it.poiCount }
+                    val total = res.poiCount + extraPois
+                    val doneMsg =
+                        if (res.detourResults.isEmpty()) {
+                            "Done! ${note}$total POI(s) found."
+                        } else {
+                            "Done! ${note}$total POI(s) " +
+                                "(${res.poiCount} primary + $extraPois detour segment(s))."
+                        }
+                    _snackbar.postValue(doneMsg)
                 }
             } catch (e: CancellationException) {
                 log("Cancelled.")

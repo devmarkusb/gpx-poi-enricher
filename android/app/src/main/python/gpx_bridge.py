@@ -21,6 +21,11 @@ from gpx_poi_enricher.maps_to_gpx_cli import (
     parse_waypoints_from_url,
 )
 from gpx_poi_enricher.profiles import load_all_profiles
+from gpx_poi_enricher.route_detours import (
+    alternate_is_reverse_itinerary,
+    alternate_redundant_with_prior,
+    detour_span_for_alternate,
+)
 from gpx_poi_enricher.split_cli import add_split_waypoints
 
 _cancel_event = threading.Event()
@@ -140,78 +145,157 @@ def _safe_filename(label: str) -> str:
 
 
 def easy_generate(
-    url: str,
+    primary_url: str,
+    extras_multiline: str,
     profile_id: str,
     profiles_dir: str,
     output_dir: str,
     log_callback,
 ) -> str:
-    """Combined Maps→GPX + POI enrichment pipeline for Easy mode.
+    """Combined Maps→GPX + POI enrichment pipeline for Easy mode (primary + optional alternates).
+
+    *extras_multiline*: optional extra Google Maps URLs, one per line (same semantics as desktop
+    Easy tab). Alternate routes yield ``-full-NN.gpx`` files; deviations vs primary yield
+    ``-detour-NN.gpx``, each detour enriched for POIs like the primary track.
 
     Returns a JSON string:
-        {track_path, poi_path, start, finish, poi_count, track_reused}
-    or {cancelled: true} if cancelled before completion.
+        {
+          track_path, poi_path, start, finish, poi_count, track_reused,
+          alternate_full_paths: [...],
+          detour_results: [{"track_path", "poi_path", "poi_count"}, ...],
+        }
+    or ``{cancelled: true}`` if cancelled before completion.
     """
     _cancel_event.clear()
     old = sys.stderr
     sys.stderr = _LogStream(log_callback)
     try:
+        extra_lines = [ln.strip() for ln in (extras_multiline or "").splitlines() if ln.strip()]
+        urls = [primary_url.strip(), *extra_lines]
         session = requests.Session()
 
-        # Step 1: Expand short URLs
-        if "goo.gl" in url or "maps.app" in url:
-            sys.stderr.write("Expanding short URL…\n")
-            url = _expand_url(url, session)
-            sys.stderr.write(f"  → {url}\n")
+        routes: list[tuple[list[tuple[float, float, str]], list[tuple[float, float]]]] = []
+        for idx, raw_url in enumerate(urls):
+            if _cancel_event.is_set():
+                sys.stderr.write("Cancelled.\n")
+                return json.dumps({"cancelled": True})
+            url = raw_url
+            sys.stderr.write(f"Route {idx + 1}/{len(urls)}: parsing…\n")
+            if "goo.gl" in url or "maps.app" in url:
+                sys.stderr.write("Expanding short URL…\n")
+                url = _expand_url(url, session)
+                sys.stderr.write(f"  → {url}\n")
 
-        # Step 2: Parse waypoints
-        raw = parse_waypoints_from_url(url)
-        if len(raw) < 2:
-            raise ValueError("Need at least 2 waypoints (origin + destination).")
-        sys.stderr.write(f"Found {len(raw)} waypoint(s) in URL.\n")
+            raw = parse_waypoints_from_url(url)
+            if len(raw) < 2:
+                raise ValueError("Each URL needs at least 2 waypoints (origin + destination).")
+            sys.stderr.write(f"Found {len(raw)} waypoint(s) in URL.\n")
 
-        # Step 3: Resolve / geocode
-        sys.stderr.write("Resolving waypoints via Nominatim…\n")
-        waypoints = _resolve_waypoints(raw, session)
-        for lat, lon, label in waypoints:
-            sys.stderr.write(f"  {label} → {lat:.5f}, {lon:.5f}\n")
+            sys.stderr.write("Resolving waypoints via Nominatim…\n")
+            waypoints = _resolve_waypoints(raw, session)
+            for lat, lon, label in waypoints:
+                sys.stderr.write(f"  {label} → {lat:.5f}, {lon:.5f}\n")
 
-        # Step 4: Derive filenames from shortened start/finish labels
-        start_label = _shorten_label(waypoints[0][2])
-        finish_label = _shorten_label(waypoints[-1][2])
+            sys.stderr.write("Routing via OSRM (driving)…\n")
+            track_points = _route_osrm(waypoints, "driving", session)
+            sys.stderr.write(f"  {len(track_points)} track point(s) returned.\n")
+            routes.append((waypoints, track_points))
+
+        primary_wp, primary_pts = routes[0]
+        start_label = _shorten_label(primary_wp[0][2])
+        finish_label = _shorten_label(primary_wp[-1][2])
         base_name = f"{_safe_filename(start_label)}-{_safe_filename(finish_label)}"
         out_dir = pathlib.Path(output_dir)
         track_path = str(out_dir / f"{base_name}.gpx")
         poi_path = str(out_dir / f"{base_name}-{profile_id}.gpx")
         track_name = f"{start_label} – {finish_label}"
 
-        # Step 5: Create track GPX (reuse if already exists)
         track_reused = False
         if pathlib.Path(track_path).exists():
-            sys.stderr.write(f"Track already exists, reusing: {track_path}\n")
+            sys.stderr.write(f"Primary track already exists, reusing: {track_path}\n")
             track_reused = True
         else:
-            sys.stderr.write("Routing via OSRM (driving)…\n")
-            track_points = _route_osrm(waypoints, "driving", session)
-            sys.stderr.write(f"  {len(track_points)} track point(s) returned.\n")
-            _write_gpx(track_points, waypoints, track_path, track_name)
-            sys.stderr.write(f"Track saved: {track_path}\n")
+            _write_gpx(primary_pts, primary_wp, track_path, track_name)
+            sys.stderr.write(f"Primary track saved: {track_path}\n")
+
+        tracks_to_enrich: list[str] = [track_path]
+        alternate_full_paths: list[str] = []
+
+        if len(routes) > 1:
+            for j, (wpts, pts) in enumerate(routes[1:], start=2):
+                alt_path = out_dir / f"{base_name}-full-{j:02d}.gpx"
+                alt_track = f"{_shorten_label(wpts[0][2])} – {_shorten_label(wpts[-1][2])}"
+                alt_path_str = str(alt_path)
+                alternate_full_paths.append(alt_path_str)
+                if alt_path.exists():
+                    sys.stderr.write(f"Alternate route GPX already exists, reusing: {alt_path}\n")
+                else:
+                    _write_gpx(pts, wpts, alt_path_str, alt_track)
+                    sys.stderr.write(f"Alternate route GPX: {alt_path}\n")
+
+            prior_alt_pts: list[list[tuple[float, float]]] = []
+            for j, (_, alt_pts) in enumerate(routes[1:], start=2):
+                if alternate_redundant_with_prior(alt_pts, primary_pts, prior_alt_pts):
+                    sys.stderr.write(
+                        f"Alternate {j}: skipping detour enrichment (same as primary "
+                        "or earlier alternate, including reverse).\n"
+                    )
+                    prior_alt_pts.append(alt_pts)
+                    continue
+                if alternate_is_reverse_itinerary(primary_pts, alt_pts):
+                    sys.stderr.write(
+                        f"Alternate {j}: skipping detour enrichment (reverse itinerary "
+                        "B→A vs primary A→B).\n"
+                    )
+                    prior_alt_pts.append(alt_pts)
+                    continue
+                prior_alt_pts.append(alt_pts)
+                span = detour_span_for_alternate(alt_pts, primary_pts)
+                if not span:
+                    sys.stderr.write(
+                        f"Alternate {j}: no detour track (on primary within threshold).\n"
+                    )
+                    continue
+                det_path = out_dir / f"{base_name}-detour-{j:02d}.gpx"
+                det_str = str(det_path)
+                if det_path.exists():
+                    sys.stderr.write(f"Detour GPX already exists, reusing: {det_path}\n")
+                else:
+                    _write_gpx(span, [], det_str, f"Detour (alternate {j})")
+                    sys.stderr.write(f"Detour GPX: {det_path} ({len(span)} points)\n")
+                tracks_to_enrich.append(det_str)
 
         if _cancel_event.is_set():
             sys.stderr.write("Cancelled.\n")
             return json.dumps({"cancelled": True})
 
-        # Step 6: Enrich with selected profile
-        sys.stderr.write(f"Enriching with '{profile_id}' profile…\n")
-        items = enrich_gpx_file(
-            track_path,
-            poi_path,
-            profile_id,
-            profiles_dir=pathlib.Path(profiles_dir),
-            cancel_event=_cancel_event,
-            progress_interval=5.0,
-        )
-        sys.stderr.write(f"POIs saved: {poi_path}  ({len(items)} POI(s))\n")
+        primary_stem = pathlib.Path(track_path).stem
+        detour_results: list[dict] = []
+        primary_poi_count = 0
+
+        for tpath in tracks_to_enrich:
+            if _cancel_event.is_set():
+                sys.stderr.write("Cancelled.\n")
+                return json.dumps({"cancelled": True})
+            stem = pathlib.Path(tpath).stem
+            outp = str(out_dir / f"{stem}-{profile_id}.gpx")
+            sys.stderr.write(f"Enriching: {tpath} → {outp}\n")
+            early_cancel = stem == primary_stem
+            items = enrich_gpx_file(
+                tpath,
+                outp,
+                profile_id,
+                profiles_dir=pathlib.Path(profiles_dir),
+                early_cancel_if_no_pois=early_cancel,
+                cancel_event=_cancel_event,
+                progress_interval=5.0,
+            )
+            n = len(items)
+            sys.stderr.write(f"POIs saved: {outp}  ({n} POI(s))\n")
+            if stem == primary_stem:
+                primary_poi_count = n
+            elif "-detour-" in stem:
+                detour_results.append({"track_path": tpath, "poi_path": outp, "poi_count": n})
 
         return json.dumps(
             {
@@ -219,8 +303,10 @@ def easy_generate(
                 "poi_path": poi_path,
                 "start": start_label,
                 "finish": finish_label,
-                "poi_count": len(items),
+                "poi_count": primary_poi_count,
                 "track_reused": track_reused,
+                "alternate_full_paths": alternate_full_paths,
+                "detour_results": detour_results,
             }
         )
     finally:
