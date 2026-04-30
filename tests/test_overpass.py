@@ -1,6 +1,6 @@
 """Tests for gpx_poi_enricher.overpass module.
 
-Covers: build_overpass_query, extract_candidates, element_latlon.
+Covers: build_overpass_queries, build_overpass_query, extract_candidates, element_latlon.
 No real HTTP calls are made; Overpass responses are provided as mock dicts.
 """
 
@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from gpx_poi_enricher.overpass import (
+    build_overpass_queries,
     build_overpass_query,
     element_latlon,
     extract_candidates,
@@ -123,112 +124,130 @@ def test_element_latlon_direct_lat_lon_takes_priority():
 
 
 # ---------------------------------------------------------------------------
-# build_overpass_query
+# build_overpass_queries / build_overpass_query
 # ---------------------------------------------------------------------------
 
 
-def test_build_overpass_query_contains_out_json():
-    """build_overpass_query must produce a query starting with [out:json]."""
+def test_build_overpass_query_raises_when_tags_and_terms():
+    """Single-query helper must refuse profiles that need split Overpass requests."""
     profile = _make_profile()
     pts = [(48.1351, 11.5820)]
-    query = build_overpass_query(pts, max_km=10.0, profile=profile, country_code="DE")
-    assert "[out:json]" in query
+    with pytest.raises(ValueError, match="build_overpass_queries"):
+        build_overpass_query(pts, max_km=10.0, profile=profile, country_code="DE")
 
 
-def test_build_overpass_query_includes_around_radius():
-    """build_overpass_query must embed the radius in metres (max_km * 1000)."""
-    profile = _make_profile()
+def test_build_overpass_queries_splits_tags_and_terms():
+    """Profiles with both tags and terms must yield two separate Overpass scripts."""
+    profile = _make_profile(
+        tags=(
+            {"key": "tourism", "value": "camp_site"},
+            {"key": "tourism", "value": "caravan_site"},
+        ),
+    )
     pts = [(48.0, 11.0)]
-    query = build_overpass_query(pts, max_km=5.0, profile=profile, country_code="DE")
+    qs = build_overpass_queries(pts, max_km=10.0, profile=profile, country_code="DE")
+    assert len(qs) == 2
+    tag_q, term_q = qs
+    assert '"tourism"="camp_site"' in tag_q
+    assert '"tourism"="caravan_site"' in tag_q
+    assert "Campingplatz" in term_q and "campsite" in term_q
+    assert '["name"~"' in term_q
+
+
+def test_build_overpass_queries_contains_out_json():
+    """Every emitted query must start with [out:json]."""
+    profile = _make_profile()
+    pts = [(48.1351, 11.5820)]
+    for q in build_overpass_queries(pts, max_km=10.0, profile=profile, country_code="DE"):
+        assert "[out:json]" in q
+
+
+def test_build_overpass_queries_includes_around_radius():
+    """Queries must embed the radius in metres (max_km * 1000)."""
+    profile = _make_profile(tags=({"key": "tourism", "value": "camp_site"},), terms={})
+    pts = [(48.0, 11.0)]
+    query = build_overpass_queries(pts, max_km=5.0, profile=profile, country_code="DE")[0]
     assert "around:5000" in query
 
 
-def test_build_overpass_query_includes_tag_filter():
-    """build_overpass_query must include the profile's OSM tag filter."""
-    profile = _make_profile(tags=({"key": "tourism", "value": "camp_site"},))
+def test_build_overpass_queries_includes_tag_filter():
+    """Tag-only profile must include the OSM tag filter."""
+    profile = _make_profile(tags=({"key": "tourism", "value": "camp_site"},), terms={})
     pts = [(48.0, 11.0)]
-    query = build_overpass_query(pts, max_km=10.0, profile=profile, country_code="DE")
+    query = build_overpass_queries(pts, max_km=10.0, profile=profile, country_code="DE")[0]
     assert '"tourism"="camp_site"' in query
 
 
-def test_build_overpass_query_includes_terms_regex():
-    """build_overpass_query must embed country-specific and EN terms as a regex."""
-    profile = _make_profile(terms={"DE": ["Campingplatz"], "EN": ["campsite"]})
+def test_build_overpass_queries_includes_terms_regex():
+    """Terms-only profile must embed country-specific and EN terms as a regex."""
+    profile = _make_profile(tags=(), terms={"DE": ["Campingplatz"], "EN": ["campsite"]})
     pts = [(48.0, 11.0)]
-    query = build_overpass_query(pts, max_km=10.0, profile=profile, country_code="DE")
-    # Both DE and EN terms should appear in the query (escaped in regex).
+    query = build_overpass_queries(pts, max_km=10.0, profile=profile, country_code="DE")[0]
     assert "Campingplatz" in query
     assert "campsite" in query
 
 
-def test_build_overpass_query_multiple_element_types():
-    """build_overpass_query must emit node/way/relation selectors."""
-    profile = _make_profile()
+def test_build_overpass_queries_multiple_element_types():
+    """Queries must emit node/way/relation selectors."""
+    profile = _make_profile(tags=({"key": "tourism", "value": "camp_site"},), terms={})
     pts = [(48.0, 11.0)]
-    query = build_overpass_query(pts, max_km=10.0, profile=profile, country_code="DE")
+    query = build_overpass_queries(pts, max_km=10.0, profile=profile, country_code="DE")[0]
     assert "node(" in query
     assert "way(" in query
     assert "relation(" in query
 
 
-def test_build_overpass_query_multiple_points():
-    """build_overpass_query must generate selectors for every point in the batch."""
-    profile = _make_profile()
+def test_build_overpass_queries_multiple_points():
+    """Queries must generate selectors for every point in the batch."""
+    profile = _make_profile(tags=({"key": "tourism", "value": "camp_site"},), terms={})
     pts = [(48.0, 11.0), (47.0, 10.0)]
-    query = build_overpass_query(pts, max_km=10.0, profile=profile, country_code="DE")
-    # Both coordinates should appear in the query string.
+    query = build_overpass_queries(pts, max_km=10.0, profile=profile, country_code="DE")[0]
     assert "48.0" in query
     assert "47.0" in query
 
 
-def test_build_overpass_query_wildcard_tag_value():
-    """build_overpass_query with value='*' must emit a key-only filter [key]."""
-    profile = _make_profile(tags=({"key": "tourism", "value": "*"},))
+def test_build_overpass_queries_wildcard_tag_value():
+    """value='*' must emit a key-only filter [key]."""
+    profile = _make_profile(tags=({"key": "tourism", "value": "*"},), terms={})
     pts = [(48.0, 11.0)]
-    query = build_overpass_query(pts, max_km=10.0, profile=profile, country_code="DE")
+    query = build_overpass_queries(pts, max_km=10.0, profile=profile, country_code="DE")[0]
     assert '["tourism"]' in query
 
 
-def test_build_overpass_query_raises_for_empty_tags_and_no_terms():
-    """build_overpass_query must raise ValueError when there are no tags and no terms."""
+def test_build_overpass_queries_raises_for_empty_tags_and_no_terms():
+    """Must raise ValueError when there are no tags and no terms."""
     profile = _make_profile(tags=(), terms={})
     pts = [(48.0, 11.0)]
     with pytest.raises(ValueError, match="No Overpass query could be built"):
-        build_overpass_query(pts, max_km=10.0, profile=profile, country_code="ZZ")
+        build_overpass_queries(pts, max_km=10.0, profile=profile, country_code="ZZ")
 
 
-def test_build_overpass_query_kids_activities_no_tags_unknown_country():
-    """build_overpass_query for a profile with no tags and no matching country terms
-    must raise ValueError when used with an unrecognised country code.
-
-    This mirrors the 'kids_activities' profile which has no OSM tag filters and
-    relies entirely on search terms. For an unknown country with no EN fallback either
-    a ValueError should be raised.
-    """
+def test_build_overpass_queries_kids_activities_no_tags_unknown_country():
+    """Profile with no tags and no matching country terms must raise for unknown country."""
     profile = _make_profile(tags=(), terms={"DE": ["Kindererlebnis"]})
     pts = [(48.0, 11.0)]
-    # Country ZZ has no terms and there are no tags – expect ValueError.
     with pytest.raises(ValueError):
-        build_overpass_query(pts, max_km=15.0, profile=profile, country_code="ZZ")
+        build_overpass_queries(pts, max_km=15.0, profile=profile, country_code="ZZ")
 
 
-def test_build_overpass_query_and_tag_extra_condition():
-    """build_overpass_query must include extra conditions from the 'and' key in a tag."""
+def test_build_overpass_queries_and_tag_extra_condition():
+    """Must include extra conditions from the 'and' key in a tag."""
     profile = _make_profile(
-        tags=({"key": "amenity", "value": "fuel", "and": {"key": "motorcar", "value": "yes"}},)
+        tags=({"key": "amenity", "value": "fuel", "and": {"key": "motorcar", "value": "yes"}},),
+        terms={},
     )
     pts = [(48.0, 11.0)]
-    query = build_overpass_query(pts, max_km=5.0, profile=profile, country_code="EN")
+    query = build_overpass_queries(pts, max_km=5.0, profile=profile, country_code="EN")[0]
     assert '"amenity"="fuel"' in query
     assert '"motorcar"="yes"' in query
 
 
-def test_build_overpass_query_ends_with_out_center_tags():
-    """build_overpass_query must end with 'out center tags;'."""
+def test_build_overpass_queries_ends_with_out_center_tags():
+    """Every query must end with 'out center tags;'."""
     profile = _make_profile()
     pts = [(48.0, 11.0)]
-    query = build_overpass_query(pts, max_km=10.0, profile=profile, country_code="DE")
-    assert query.strip().endswith("out center tags;")
+    for q in build_overpass_queries(pts, max_km=10.0, profile=profile, country_code="DE"):
+        assert q.strip().endswith("out center tags;")
 
 
 # ---------------------------------------------------------------------------

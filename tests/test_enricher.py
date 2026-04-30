@@ -7,6 +7,7 @@ library – no real network access is made.
 
 from __future__ import annotations
 
+import json
 import xml.etree.ElementTree as ET
 from unittest.mock import patch
 
@@ -20,6 +21,18 @@ from gpx_poi_enricher.overpass import OVERPASS_URLS
 from gpx_poi_enricher.profiles import SearchProfile
 
 OVERPASS_URL = OVERPASS_URLS[0]
+
+
+def _stub_overpass(json_body: dict):
+    """Answer every Overpass POST with *json_body* (supports split tag+term queries)."""
+
+    headers = {"Content-Type": "application/json"}
+
+    def _cb(_request):
+        return (200, headers, json.dumps(json_body))
+
+    for url in OVERPASS_URLS:
+        resp_lib.add_callback(resp_lib.POST, url, callback=_cb)
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +97,7 @@ def _overpass_empty_response() -> dict:
 def test_enrich_track_returns_list(sample_track_points, profiles_dir):
     """enrich_track must return a list (possibly empty) of candidate dicts."""
     resp_lib.add(resp_lib.GET, NOMINATIM_URL, json=_nominatim_json("de"), status=200)
-    resp_lib.add(resp_lib.POST, OVERPASS_URL, json=_overpass_empty_response(), status=200)
+    _stub_overpass(_overpass_empty_response())
 
     profile = _make_profile()
     with (
@@ -126,9 +139,7 @@ def test_enrich_track_result_is_sorted_by_distance(sample_track_points):
             },
         ]
     }
-    # Register enough Overpass responses for all batches.
-    for _ in range(10):
-        resp_lib.add(resp_lib.POST, OVERPASS_URL, json=overpass_response, status=200)
+    _stub_overpass(overpass_response)
 
     profile = _make_profile(sample_km=100.0)
     with (
@@ -150,7 +161,7 @@ def test_enrich_track_result_is_sorted_by_distance(sample_track_points):
 def test_enrich_track_result_dicts_have_required_keys(sample_track_points):
     """Each dict in the enrich_track result must have lat, lon, name, kind, distance_km, tags."""
     resp_lib.add(resp_lib.GET, NOMINATIM_URL, json=_nominatim_json("de"), status=200)
-    resp_lib.add(resp_lib.POST, OVERPASS_URL, json=_overpass_response_with_campsite(), status=200)
+    _stub_overpass(_overpass_response_with_campsite())
 
     profile = _make_profile()
     with (
@@ -184,7 +195,7 @@ def test_enrich_track_respects_max_km(sample_track_points):
             }
         ]
     }
-    resp_lib.add(resp_lib.POST, OVERPASS_URL, json=tokyo_response, status=200)
+    _stub_overpass(tokyo_response)
 
     profile = _make_profile(max_km=10.0)
     with (
@@ -206,8 +217,7 @@ def test_enrich_track_early_cancel_many_empty_batches():
     pts = [(48.0 + i * 0.02, 11.0) for i in range(150)]
     for _ in range(300):
         resp_lib.add(resp_lib.GET, NOMINATIM_URL, json=_nominatim_json("de"), status=200)
-    for _ in range(200):
-        resp_lib.add(resp_lib.POST, OVERPASS_URL, json=_overpass_empty_response(), status=200)
+    _stub_overpass(_overpass_empty_response())
     profile = _make_profile(sample_km=1.0, batch_size=3, retries=1)
     with (
         patch("gpx_poi_enricher.geocoding.time.sleep"),
@@ -224,8 +234,7 @@ def test_enrich_track_no_early_cancel_runs_all_batches_when_disabled():
     pts = [(48.0 + i * 0.02, 11.0) for i in range(24)]
     for _ in range(120):
         resp_lib.add(resp_lib.GET, NOMINATIM_URL, json=_nominatim_json("de"), status=200)
-    for _ in range(40):
-        resp_lib.add(resp_lib.POST, OVERPASS_URL, json=_overpass_empty_response(), status=200)
+    _stub_overpass(_overpass_empty_response())
     profile = _make_profile(sample_km=1.0, batch_size=3, retries=1)
     with (
         patch("gpx_poi_enricher.geocoding.time.sleep"),
@@ -242,8 +251,7 @@ def test_enrich_track_no_country_falls_back_to_en(sample_track_points):
     back to using 'EN' as the single country segment and still complete."""
     # Nominatim returns empty address so country_code is empty.
     resp_lib.add(resp_lib.GET, NOMINATIM_URL, json={"address": {}}, status=200)
-    for _ in range(20):
-        resp_lib.add(resp_lib.POST, OVERPASS_URL, json=_overpass_empty_response(), status=200)
+    _stub_overpass(_overpass_empty_response())
 
     profile = _make_profile()
     with (
@@ -270,7 +278,7 @@ def test_enrich_track_no_country_falls_back_to_en(sample_track_points):
 def test_enrich_gpx_file_writes_output(sample_gpx_path, tmp_path, profiles_dir):
     """enrich_gpx_file must create an output GPX file at the specified path."""
     resp_lib.add(resp_lib.GET, NOMINATIM_URL, json=_nominatim_json("de"), status=200)
-    resp_lib.add(resp_lib.POST, OVERPASS_URL, json=_overpass_empty_response(), status=200)
+    _stub_overpass(_overpass_empty_response())
 
     output_path = tmp_path / "out.gpx"
 
@@ -293,7 +301,7 @@ def test_enrich_gpx_file_writes_output(sample_gpx_path, tmp_path, profiles_dir):
 def test_enrich_gpx_file_output_is_valid_gpx(sample_gpx_path, tmp_path, profiles_dir):
     """enrich_gpx_file must produce a well-formed GPX XML file."""
     resp_lib.add(resp_lib.GET, NOMINATIM_URL, json=_nominatim_json("de"), status=200)
-    resp_lib.add(resp_lib.POST, OVERPASS_URL, json=_overpass_empty_response(), status=200)
+    _stub_overpass(_overpass_empty_response())
 
     output_path = tmp_path / "out.gpx"
 
@@ -319,7 +327,7 @@ def test_enrich_gpx_file_output_is_valid_gpx(sample_gpx_path, tmp_path, profiles
 def test_enrich_gpx_file_strips_tracks_from_output(sample_gpx_path, tmp_path, profiles_dir):
     """The output GPX file must not contain any <trk> or <rte> elements."""
     resp_lib.add(resp_lib.GET, NOMINATIM_URL, json=_nominatim_json("de"), status=200)
-    resp_lib.add(resp_lib.POST, OVERPASS_URL, json=_overpass_empty_response(), status=200)
+    _stub_overpass(_overpass_empty_response())
 
     output_path = tmp_path / "out.gpx"
 
@@ -347,13 +355,7 @@ def test_enrich_gpx_file_contains_waypoints_when_pois_found(
 ):
     """When Overpass returns a nearby POI, the output GPX must contain a <wpt> element."""
     resp_lib.add(resp_lib.GET, NOMINATIM_URL, json=_nominatim_json("de"), status=200)
-    # Return a campsite very close to the first track point (Munich).
-    resp_lib.add(
-        resp_lib.POST,
-        OVERPASS_URL,
-        json=_overpass_response_with_campsite(lat=48.14, lon=11.58),
-        status=200,
-    )
+    _stub_overpass(_overpass_response_with_campsite(lat=48.14, lon=11.58))
 
     output_path = tmp_path / "out.gpx"
 
@@ -380,7 +382,7 @@ def test_enrich_gpx_file_contains_waypoints_when_pois_found(
 def test_enrich_gpx_file_returns_waypoint_count(sample_gpx_path, tmp_path, profiles_dir):
     """enrich_gpx_file must return the integer count of waypoints written."""
     resp_lib.add(resp_lib.GET, NOMINATIM_URL, json=_nominatim_json("de"), status=200)
-    resp_lib.add(resp_lib.POST, OVERPASS_URL, json=_overpass_empty_response(), status=200)
+    _stub_overpass(_overpass_empty_response())
 
     output_path = tmp_path / "out.gpx"
 
@@ -405,10 +407,8 @@ def test_enrich_gpx_file_waypoint_names_in_output(sample_gpx_path, tmp_path, pro
     """Waypoint <name> elements in the output GPX must reflect the POI names returned
     by Overpass."""
     resp_lib.add(resp_lib.GET, NOMINATIM_URL, json=_nominatim_json("de"), status=200)
-    resp_lib.add(
-        resp_lib.POST,
-        OVERPASS_URL,
-        json={
+    _stub_overpass(
+        {
             "elements": [
                 {
                     "type": "node",
@@ -418,8 +418,7 @@ def test_enrich_gpx_file_waypoint_names_in_output(sample_gpx_path, tmp_path, pro
                     "tags": {"name": "Campingpark Isartal", "tourism": "camp_site"},
                 }
             ]
-        },
-        status=200,
+        }
     )
 
     output_path = tmp_path / "out.gpx"
