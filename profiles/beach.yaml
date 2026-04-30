@@ -11,8 +11,4 @@ tags:
     value: beach
   - key: leisure
     value: bathing_place
-terms:
-  DE: ["Badesee", "Badestrand", "Strand", "Badestelle"]
-  FR: ["plage", "lac de baignade", "baignade"]
-  ES: ["playa", "zona de baño", "lago para bañarse"]
-  EN: ["beach", "swimming lake", "bathing place"]
+terms: {}

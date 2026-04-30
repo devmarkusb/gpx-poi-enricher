@@ -11,8 +11,4 @@ tags:
     value: theme_park
   - key: tourism
     value: attraction
-terms:
-  DE: ["Freizeitpark", "Erlebnispark", "Themenpark"]
-  FR: ["parc d attractions", "parc a theme"]
-  ES: ["parque de atracciones", "parque temático"]
-  EN: ["theme park", "amusement park"]
+terms: {}
