@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import functools
+import os
 import re
 import sys
 import time
@@ -31,7 +32,20 @@ USER_AGENT = "gpx-poi-enricher/0.1 (https://github.com/devmarkusb/gpx-poi-enrich
 
 OSRM_PROFILES = {"driving": "car", "cycling": "bike", "walking": "foot"}
 NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
-OSRM_BASE_URL = "http://router.project-osrm.org/route/v1"
+# Public demo; may rate-limit or time out. Override with OSRM_BASE_URL or --osrm-base-url.
+OSRM_DEFAULT_BASE = "https://router.project-osrm.org/route/v1"
+# Kept as a module attribute so callers can monkey-patch (legacy Android bridge).
+OSRM_BASE_URL = OSRM_DEFAULT_BASE
+
+
+def _effective_osrm_base_url(explicit: str | None = None) -> str:
+    if explicit is not None:
+        return explicit.rstrip("/")
+    env = os.environ.get("OSRM_BASE_URL")
+    if env:
+        return env.rstrip("/")
+    return OSRM_BASE_URL.rstrip("/")
+
 
 # Matches "lat,lon" like "48.8566,2.3522" or "-33.8688,151.2093"
 _COORD_RE = re.compile(r"^-?\d+\.?\d*,-?\d+\.?\d*$")
@@ -238,21 +252,35 @@ def _route_osrm(
     waypoints: list[tuple[float, float, str]],
     mode: str,
     session: requests.Session,
+    *,
+    base_url: str | None = None,
 ) -> list[tuple[float, float]]:
     """Route between resolved waypoints via OSRM. Returns list of (lat, lon)."""
     osrm_profile = OSRM_PROFILES.get(mode, "car")
     # OSRM expects lon,lat order (GeoJSON)
     coord_str = ";".join(f"{lon},{lat}" for lat, lon, _ in waypoints)
-    url = f"{OSRM_BASE_URL}/{osrm_profile}/{coord_str}"
+    root = _effective_osrm_base_url(base_url)
+    url = f"{root}/{osrm_profile}/{coord_str}"
     params = {"overview": "full", "geometries": "geojson"}
     headers = {"User-Agent": USER_AGENT}
-    r = session.get(url, params=params, headers=headers, timeout=60)
-    r.raise_for_status()
-    data = r.json()
-    if data.get("code") != "Ok":
-        raise RuntimeError(f"OSRM returned an error: {data.get('message', data)}")
-    # GeoJSON coordinates are [lon, lat] — convert to (lat, lon)
-    return [(c[1], c[0]) for c in data["routes"][0]["geometry"]["coordinates"]]
+    for attempt in range(3):
+        try:
+            r = session.get(url, params=params, headers=headers, timeout=60)
+            r.raise_for_status()
+            data = r.json()
+            if data.get("code") != "Ok":
+                raise RuntimeError(f"OSRM returned an error: {data.get('message', data)}")
+            # GeoJSON coordinates are [lon, lat] — convert to (lat, lon)
+            return [(c[1], c[0]) for c in data["routes"][0]["geometry"]["coordinates"]]
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            if attempt < 2:
+                time.sleep(2.0 * (attempt + 1))
+                continue
+            raise RuntimeError(
+                f"OSRM unreachable after retries ({root}): {exc}. "
+                "The public demo server is often overloaded; set OSRM_BASE_URL to a "
+                "self-hosted OSRM base (…/route/v1) or try again later."
+            ) from exc
 
 
 def _write_gpx(
@@ -303,6 +331,15 @@ def main() -> None:
         default="Route",
         help="Track name written into the GPX file (default: Route)",
     )
+    ap.add_argument(
+        "--osrm-base-url",
+        default=None,
+        metavar="URL",
+        help=(
+            "OSRM API root ending in /route/v1 (default: public demo; "
+            "overrides OSRM_BASE_URL env if set)"
+        ),
+    )
     args = ap.parse_args()
 
     session = requests.Session()
@@ -345,9 +382,14 @@ def main() -> None:
     # 4. Route
     print(f"Routing via OSRM ({args.mode})...", file=sys.stderr)
     try:
-        track_points = _route_osrm(waypoints, args.mode, session)
+        track_points = _route_osrm(waypoints, args.mode, session, base_url=args.osrm_base_url)
     except (RuntimeError, requests.RequestException) as exc:
         print(f"Routing error: {exc}", file=sys.stderr)
+        if isinstance(exc, requests.ConnectionError | requests.Timeout):
+            print(
+                "Hint: set OSRM_BASE_URL or pass --osrm-base-url to use your own OSRM server.",
+                file=sys.stderr,
+            )
         sys.exit(1)
 
     print(f"  {len(track_points)} track point(s) returned.", file=sys.stderr)

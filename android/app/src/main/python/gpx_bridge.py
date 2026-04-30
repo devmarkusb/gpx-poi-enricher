@@ -12,7 +12,6 @@ import threading
 
 import requests
 
-import gpx_poi_enricher.maps_to_gpx_cli as _maps_mod
 from gpx_poi_enricher.enricher import enrich_gpx_file
 from gpx_poi_enricher.maps_to_gpx_cli import (
     _expand_url,
@@ -23,9 +22,6 @@ from gpx_poi_enricher.maps_to_gpx_cli import (
 )
 from gpx_poi_enricher.profiles import load_all_profiles
 from gpx_poi_enricher.split_cli import add_split_waypoints
-
-# Use HTTPS for OSRM so Android cleartext-traffic policy is satisfied
-_maps_mod.OSRM_BASE_URL = "https://router.project-osrm.org/route/v1"
 
 _cancel_event = threading.Event()
 
