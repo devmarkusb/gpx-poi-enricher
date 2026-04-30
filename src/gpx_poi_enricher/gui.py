@@ -329,8 +329,13 @@ class _MapsWorker(QThread):
                 for j, (wpts, pts) in enumerate(routes[1:], start=2):
                     alt_path = out_dir / f"{stem}-full-{j:02d}.gpx"
                     alt_track = f"{_shorten_label(wpts[0][2])} – {_shorten_label(wpts[-1][2])}"
-                    _write_gpx(pts, wpts, str(alt_path), alt_track)
-                    self.log_message.emit(f"Saved alternate GPX: {alt_path}")
+                    if alt_path.exists():
+                        self.log_message.emit(
+                            f"Alternate route GPX already exists, reusing: {alt_path}"
+                        )
+                    else:
+                        _write_gpx(pts, wpts, str(alt_path), alt_track)
+                        self.log_message.emit(f"Saved alternate GPX: {alt_path}")
 
                 prior_alt_pts: list[list[tuple[float, float]]] = []
                 wrote_detour = False
@@ -357,8 +362,11 @@ class _MapsWorker(QThread):
                         )
                         continue
                     det_path = out_dir / f"{stem}-detour-{j:02d}.gpx"
-                    _write_gpx(span, [], str(det_path), f"Detour (alternate {j})")
-                    self.log_message.emit(f"Saved detour: {det_path} ({len(span)} points)")
+                    if det_path.exists():
+                        self.log_message.emit(f"Detour GPX already exists, reusing: {det_path}")
+                    else:
+                        _write_gpx(span, [], str(det_path), f"Detour (alternate {j})")
+                        self.log_message.emit(f"Saved detour: {det_path} ({len(span)} points)")
                     wrote_detour = True
                 if len(routes) > 1 and not wrote_detour:
                     self.log_message.emit(
@@ -454,8 +462,13 @@ class _EasyWorker(QThread):
                 for j, (wpts, pts) in enumerate(routes[1:], start=2):
                     alt_path = out_dir / f"{base_name}-full-{j:02d}.gpx"
                     alt_track = f"{_shorten_label(wpts[0][2])} – {_shorten_label(wpts[-1][2])}"
-                    _write_gpx(pts, wpts, str(alt_path), alt_track)
-                    self.log_message.emit(f"Alternate route GPX: {alt_path}")
+                    if alt_path.exists():
+                        self.log_message.emit(
+                            f"Alternate route GPX already exists, reusing: {alt_path}"
+                        )
+                    else:
+                        _write_gpx(pts, wpts, str(alt_path), alt_track)
+                        self.log_message.emit(f"Alternate route GPX: {alt_path}")
 
                 prior_alt_pts: list[list[tuple[float, float]]] = []
                 for j, (wpts, alt_pts) in enumerate(routes[1:], start=2):
@@ -481,9 +494,12 @@ class _EasyWorker(QThread):
                         )
                         continue
                     det_path = out_dir / f"{base_name}-detour-{j:02d}.gpx"
-                    _write_gpx(span, [], str(det_path), f"Detour (alternate {j})")
+                    if det_path.exists():
+                        self.log_message.emit(f"Detour GPX already exists, reusing: {det_path}")
+                    else:
+                        _write_gpx(span, [], str(det_path), f"Detour (alternate {j})")
+                        self.log_message.emit(f"Detour GPX: {det_path} ({len(span)} points)")
                     tracks_to_enrich.append(str(det_path))
-                    self.log_message.emit(f"Detour GPX: {det_path} ({len(span)} points)")
 
             self.tracks_ready.emit(tracks_to_enrich)
 
