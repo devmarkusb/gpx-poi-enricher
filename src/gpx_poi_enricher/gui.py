@@ -53,13 +53,14 @@ from .maps_to_gpx_cli import (
     _resolve_waypoints,
     _route_osrm,
     _write_gpx,
+    _write_gpx_segments,
     parse_waypoints_from_url,
 )
 from .profiles import load_all_profiles
 from .route_detours import (
     alternate_is_reverse_itinerary,
     alternate_redundant_with_prior,
-    detour_span_for_alternate,
+    extract_detour_segments,
 )
 from .split_cli import add_split_waypoints
 
@@ -369,8 +370,8 @@ class _MapsWorker(QThread):
                         prior_alt_pts.append(alt_pts)
                         continue
                     prior_alt_pts.append(alt_pts)
-                    span = detour_span_for_alternate(alt_pts, primary_pts)
-                    if not span:
+                    detour_segs = extract_detour_segments(alt_pts, primary_pts)
+                    if not detour_segs:
                         self.log_message.emit(
                             f"Alternate {j}: no detour GPX (stays on primary within threshold)."
                         )
@@ -379,8 +380,13 @@ class _MapsWorker(QThread):
                     if det_path.exists():
                         self.log_message.emit(f"Detour GPX already exists, reusing: {det_path}")
                     else:
-                        _write_gpx(span, [], str(det_path), f"Detour (alternate {j})")
-                        self.log_message.emit(f"Saved detour: {det_path} ({len(span)} points)")
+                        _write_gpx_segments(
+                            detour_segs, [], str(det_path), f"Detour (alternate {j})"
+                        )
+                        n_pts = sum(len(s) for s in detour_segs)
+                        self.log_message.emit(
+                            f"Saved detour: {det_path} ({len(detour_segs)} segments, {n_pts} pts)"
+                        )
                     wrote_detour = True
                 if len(routes) > 1 and not wrote_detour:
                     self.log_message.emit(
@@ -501,8 +507,8 @@ class _EasyWorker(QThread):
                         prior_alt_pts.append(alt_pts)
                         continue
                     prior_alt_pts.append(alt_pts)
-                    span = detour_span_for_alternate(alt_pts, primary_pts)
-                    if not span:
+                    detour_segs = extract_detour_segments(alt_pts, primary_pts)
+                    if not detour_segs:
                         self.log_message.emit(
                             f"Alternate {j}: no detour track (on primary within threshold)."
                         )
@@ -511,8 +517,13 @@ class _EasyWorker(QThread):
                     if det_path.exists():
                         self.log_message.emit(f"Detour GPX already exists, reusing: {det_path}")
                     else:
-                        _write_gpx(span, [], str(det_path), f"Detour (alternate {j})")
-                        self.log_message.emit(f"Detour GPX: {det_path} ({len(span)} points)")
+                        _write_gpx_segments(
+                            detour_segs, [], str(det_path), f"Detour (alternate {j})"
+                        )
+                        n_pts = sum(len(s) for s in detour_segs)
+                        self.log_message.emit(
+                            f"Detour GPX: {det_path} ({len(detour_segs)} segments, {n_pts} pts)"
+                        )
                     tracks_to_enrich.append(str(det_path))
 
             self.tracks_ready.emit(tracks_to_enrich)
