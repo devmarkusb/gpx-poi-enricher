@@ -27,7 +27,7 @@ from gpx_poi_enricher.route_detours import (
     alternate_redundant_with_prior,
     extract_detour_segments,
 )
-from gpx_poi_enricher.split_cli import add_split_waypoints
+from gpx_poi_enricher.split_cli import add_split_waypoints, milestone_sidecar_path
 
 _cancel_event = threading.Event()
 
@@ -152,12 +152,16 @@ def easy_generate(
     profiles_dir: str,
     output_dir: str,
     log_callback,
+    split_segments: int = 0,
 ) -> str:
     """Combined Maps→GPX + POI enrichment pipeline for Easy mode (primary + optional alternates).
 
     *extras_multiline*: optional extra Google Maps URLs, one per line (same semantics as desktop
     Easy tab). Alternate routes yield ``-full-NN.gpx`` files; deviations vs primary yield
     ``-detour-NN.gpx``, each detour enriched for POIs like the primary track.
+
+    *split_segments*: if >= 2, writes a waypoint-only companion ``{stem}-milestones.gpx`` next to
+    each track (primary, alternates, detours); track GPX files are unchanged (0 = disabled).
 
     Returns a JSON string:
         {
@@ -269,6 +273,15 @@ def easy_generate(
                     )
                 tracks_to_enrich.append(det_str)
 
+        milestone_paths: list[str] = []
+        ss = int(split_segments)
+        if ss >= 2:
+            for tpath in tracks_to_enrich:
+                mpath = milestone_sidecar_path(tpath)
+                add_split_waypoints(tpath, mpath, ss)
+                milestone_paths.append(mpath)
+                sys.stderr.write(f"Wrote milestone-only GPX ({ss} wpt): {mpath}\n")
+
         if _cancel_event.is_set():
             sys.stderr.write("Cancelled.\n")
             return json.dumps({"cancelled": True})
@@ -311,6 +324,7 @@ def easy_generate(
                 "track_reused": track_reused,
                 "alternate_full_paths": alternate_full_paths,
                 "detour_results": detour_results,
+                "milestone_paths": milestone_paths,
             }
         )
     finally:

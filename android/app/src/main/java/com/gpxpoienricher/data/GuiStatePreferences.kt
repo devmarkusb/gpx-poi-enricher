@@ -16,6 +16,7 @@ object GuiStatePreferences {
     private const val K_EASY_PRIMARY = "easy_primary_url"
     private const val K_EASY_EXTRA = "easy_extra_urls"
     private const val K_EASY_PROFILE = "easy_profile_id"
+    private const val K_EASY_MILESTONE_PARTS = "easy_milestone_parts"
 
     private const val K_ENR_IN = "enricher_input_uri"
     private const val K_ENR_OUT = "enricher_output_uri"
@@ -59,11 +60,22 @@ object GuiStatePreferences {
 
     fun readEasyProfileId(ctx: Context): String? = sp(ctx).getString(K_EASY_PROFILE, null)
 
-    fun writeEasy(ctx: Context, primaryUrl: String, extraUrls: String, profileId: String?) {
+    /** 0 = off; N ≥ 2 writes waypoint-only ``-milestones.gpx`` beside each track (see Easy mode). */
+    fun readEasyMilestoneParts(ctx: Context): Int =
+        sp(ctx).getInt(K_EASY_MILESTONE_PARTS, 0).coerceIn(0, 9999)
+
+    fun writeEasy(
+        ctx: Context,
+        primaryUrl: String,
+        extraUrls: String,
+        profileId: String?,
+        milestoneParts: Int = 0,
+    ) {
         val e = sp(ctx).edit()
         e.putString(K_EASY_PRIMARY, primaryUrl)
         e.putString(K_EASY_EXTRA, extraUrls)
         if (profileId.isNullOrBlank()) e.remove(K_EASY_PROFILE) else e.putString(K_EASY_PROFILE, profileId)
+        e.putInt(K_EASY_MILESTONE_PARTS, milestoneParts.coerceIn(0, 9999))
         e.apply()
     }
 
