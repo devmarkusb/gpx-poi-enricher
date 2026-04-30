@@ -513,19 +513,22 @@ class _EasyWorker(QThread):
                     {"sample_km": 500.0, "max_km": 1.0, "country_sample_km": 500.0}
                 )
 
+            primary_stem = track_path.stem
             poi_results: list[tuple[str, int]] = []
-            for i, tpath in enumerate(tracks_to_enrich):
+            for tpath in tracks_to_enrich:
                 if self._cancel_event.is_set():
                     self.log_message.emit("Cancelled.")
                     return
                 stem = pathlib.Path(tpath).stem
                 poi_path = str(out_dir / f"{stem}-{self._profile_id}.gpx")
                 self.log_message.emit(f"Enriching: {tpath} → {poi_path}")
+                # Early cancel only for the primary route GPX, not detour fragments (often empty).
+                early_cancel = stem == primary_stem
                 items = enrich_gpx_file(
                     tpath,
                     poi_path,
                     self._profile_id,
-                    early_cancel_if_no_pois=(i == 0),
+                    early_cancel_if_no_pois=early_cancel,
                     cancel_event=self._cancel_event,
                     **enrich_kwargs,
                 )
