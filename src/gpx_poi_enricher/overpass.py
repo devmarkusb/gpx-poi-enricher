@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import re
 import sys
 import time
@@ -183,23 +182,6 @@ def _choose_name(tags: dict[str, str], profile: SearchProfile) -> str:
     return profile.description
 
 
-def _padded_track_lonlat_bbox(
-    track_points: list[tuple[float, float]], max_km: float
-) -> tuple[float, float, float, float] | None:
-    """Axis-aligned lon/lat bounds expanded by *max_km* (any POI within *max_km* of the track lies inside)."""
-    if not track_points or max_km <= 0:
-        return None
-    lats = [p[0] for p in track_points]
-    lons = [p[1] for p in track_points]
-    lat_m = sum(lats) / len(lats)
-    cos_lat = max(0.2, math.cos(math.radians(lat_m)))
-    d_lat = max_km / 111.0
-    d_lon = max_km / (111.320 * cos_lat)
-    lon_lo, lon_hi = min(lons) - d_lon, max(lons) + d_lon
-    lat_lo, lat_hi = min(lats) - d_lat, max(lats) + d_lat
-    return (lon_lo, lon_hi, lat_lo, lat_hi)
-
-
 def _choose_kind(tags: dict[str, str], profile: SearchProfile) -> str:
     matches = []
     for tag in profile.tags:
@@ -223,17 +205,11 @@ def extract_candidates(
     Returns a list of dicts with keys: lat, lon, name, kind, distance_km, tags.
     """
     dedup: OrderedDict[tuple[float, float], dict[str, Any]] = OrderedDict()
-    bbox = _padded_track_lonlat_bbox(track_points, max_km)
 
     for el in data.get("elements", []):
         lat, lon = element_latlon(el)
         if lat is None or lon is None:
             continue
-
-        if bbox is not None:
-            lon_lo, lon_hi, lat_lo, lat_hi = bbox
-            if lon < lon_lo or lon > lon_hi or lat < lat_lo or lat > lat_hi:
-                continue
 
         tags = el.get("tags", {})
         d = min_distance_to_track_km(lat, lon, track_points)

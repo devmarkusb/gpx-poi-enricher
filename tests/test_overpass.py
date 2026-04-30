@@ -345,16 +345,3 @@ def test_extract_candidates_multiple_nearby(sample_track_points):
     data = {"elements": nodes}
     result = extract_candidates(data, sample_track_points, max_km=10.0, profile=profile)
     assert len(result) == 3
-
-
-def test_extract_candidates_coarse_bbox_skips_distant_bulk(sample_track_points):
-    """Many far-away elements must be rejected without expensive per-element distance work."""
-    profile = _make_profile()
-    far = [
-        _make_node(node_id=1000 + i, lat=35.67 + (i % 5) * 0.001, lon=139.65 + (i % 5) * 0.001)
-        for i in range(4000)
-    ]
-    near = _make_node(node_id=1, lat=48.14, lon=11.58)
-    data = {"elements": far + [near]}
-    result = extract_candidates(data, sample_track_points, max_km=10.0, profile=profile)
-    assert len(result) == 1
