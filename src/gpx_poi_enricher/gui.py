@@ -16,8 +16,8 @@ import threading
 from typing import Any
 
 import requests
-from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFont, QFontMetrics
+from PyQt6.QtCore import QObject, QSettings, Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QCloseEvent, QFont, QFontMetrics
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -203,6 +203,20 @@ def _append_log(log: QPlainTextEdit, text: str) -> None:
     log.appendPlainText(text)
     sb = log.verticalScrollBar()
     sb.setValue(sb.maximum())
+
+
+def _gui_settings() -> QSettings:
+    """Per-user persistent GUI state (desktop: plist / registry / ini)."""
+    return QSettings("gpx-poi-enricher", "gui")
+
+
+def _set_combo_profile_id(combo: QComboBox, profile_id: str) -> None:
+    if not profile_id:
+        return
+    for i in range(combo.count()):
+        if combo.itemData(i) == profile_id:
+            combo.setCurrentIndex(i)
+            return
 
 
 # ── Worker threads ─────────────────────────────────────────────────────────────
@@ -751,6 +765,29 @@ class _EasyTab(QWidget):
         _append_log(self._log, f"\nERROR: {msg}")
         QMessageBox.critical(self, "Failed", msg)
 
+    def read_gui_settings(self, s: QSettings) -> None:
+        s.beginGroup("easy")
+        try:
+            self._url_edit.setText(s.value("primary_url", "", type=str))
+            self._extra_urls_edit.setPlainText(s.value("extra_urls", "", type=str))
+            _set_combo_profile_id(self._profile_combo, s.value("profile_id", "", type=str))
+            od = s.value("output_dir", "", type=str)
+            if od:
+                self._output_dir_edit.setText(od)
+        finally:
+            s.endGroup()
+
+    def write_gui_settings(self, s: QSettings) -> None:
+        s.beginGroup("easy")
+        try:
+            s.setValue("primary_url", self._url_edit.text())
+            s.setValue("extra_urls", self._extra_urls_edit.toPlainText())
+            pid = self._profile_combo.currentData()
+            s.setValue("profile_id", pid if pid else "")
+            s.setValue("output_dir", self._output_dir_edit.text())
+        finally:
+            s.endGroup()
+
 
 # ── Tab: POI Enricher ─────────────────────────────────────────────────────────
 
@@ -996,6 +1033,36 @@ class _EnricherTab(QWidget):
             self._table.setItem(row, 3, QTableWidgetItem(f"{item.get('lat', 0):.5f}"))
             self._table.setItem(row, 4, QTableWidgetItem(f"{item.get('lon', 0):.5f}"))
 
+    def read_gui_settings(self, s: QSettings) -> None:
+        s.beginGroup("enricher")
+        try:
+            self._input_edit.setText(s.value("input_path", "", type=str))
+            self._output_edit.setText(s.value("output_path", "", type=str))
+            _set_combo_profile_id(self._profile_combo, s.value("profile_id", "", type=str))
+            self._max_km.setValue(float(s.value("max_km", 0.0, type=float)))
+            self._sample_km.setValue(float(s.value("sample_km", 0.0, type=float)))
+            self._batch_size.setValue(int(s.value("batch_size", 0, type=int)))
+            self._country_km.setValue(float(s.value("country_km", 40.0, type=float)))
+            self._verbose_cb.setChecked(s.value("verbose", False, type=bool))
+        finally:
+            s.endGroup()
+        self._on_profile_changed()
+
+    def write_gui_settings(self, s: QSettings) -> None:
+        s.beginGroup("enricher")
+        try:
+            s.setValue("input_path", self._input_edit.text())
+            s.setValue("output_path", self._output_edit.text())
+            pid = self._profile_combo.currentData()
+            s.setValue("profile_id", pid if pid else "")
+            s.setValue("max_km", self._max_km.value())
+            s.setValue("sample_km", self._sample_km.value())
+            s.setValue("batch_size", self._batch_size.value())
+            s.setValue("country_km", self._country_km.value())
+            s.setValue("verbose", self._verbose_cb.isChecked())
+        finally:
+            s.endGroup()
+
 
 # ── Tab: Split Waypoints ──────────────────────────────────────────────────────
 
@@ -1077,6 +1144,26 @@ class _SplitTab(QWidget):
         self._run_btn.setEnabled(True)
         _append_log(self._log, f"\nERROR: {msg}")
         QMessageBox.critical(self, "Split failed", msg)
+
+    def read_gui_settings(self, s: QSettings) -> None:
+        s.beginGroup("split")
+        try:
+            self._input_edit.setText(s.value("input_path", "", type=str))
+            self._output_edit.setText(s.value("output_path", "", type=str))
+            segs = int(s.value("segments", 10, type=int))
+            segs = max(self._segments.minimum(), min(segs, self._segments.maximum()))
+            self._segments.setValue(segs)
+        finally:
+            s.endGroup()
+
+    def write_gui_settings(self, s: QSettings) -> None:
+        s.beginGroup("split")
+        try:
+            s.setValue("input_path", self._input_edit.text())
+            s.setValue("output_path", self._output_edit.text())
+            s.setValue("segments", self._segments.value())
+        finally:
+            s.endGroup()
 
 
 # ── Tab: Maps → GPX ──────────────────────────────────────────────────────────
@@ -1181,6 +1268,33 @@ class _MapsTab(QWidget):
         _append_log(self._log, f"\nERROR: {msg}")
         QMessageBox.critical(self, "Conversion failed", msg)
 
+    def read_gui_settings(self, s: QSettings) -> None:
+        s.beginGroup("maps")
+        try:
+            self._url_edit.setText(s.value("primary_url", "", type=str))
+            self._extra_urls_edit.setPlainText(s.value("extra_urls", "", type=str))
+            self._output_edit.setText(s.value("output_path", "", type=str))
+            mode = s.value("transport_mode", "driving", type=str)
+            for i in range(self._mode_combo.count()):
+                if self._mode_combo.itemData(i) == mode:
+                    self._mode_combo.setCurrentIndex(i)
+                    break
+            self._name_edit.setText(s.value("track_name", "Route", type=str))
+        finally:
+            s.endGroup()
+
+    def write_gui_settings(self, s: QSettings) -> None:
+        s.beginGroup("maps")
+        try:
+            s.setValue("primary_url", self._url_edit.text())
+            s.setValue("extra_urls", self._extra_urls_edit.toPlainText())
+            s.setValue("output_path", self._output_edit.text())
+            m = self._mode_combo.currentData()
+            s.setValue("transport_mode", m if m else "driving")
+            s.setValue("track_name", self._name_edit.text())
+        finally:
+            s.endGroup()
+
 
 # ── Main window ────────────────────────────────────────────────────────────────
 
@@ -1226,11 +1340,14 @@ class MainWindow(QMainWindow):
         self._easy_widget = _EasyTab(quick=quick)
         self._stack.addWidget(self._easy_widget)  # index 0
 
-        expert_tabs = QTabWidget()
-        expert_tabs.addTab(_EnricherTab(quick=quick), "POI Enricher")
-        expert_tabs.addTab(_SplitTab(), "Split Waypoints")
-        expert_tabs.addTab(_MapsTab(), "Maps → GPX")
-        self._stack.addWidget(expert_tabs)  # index 1
+        self._expert_tabs = QTabWidget()
+        self._enricher_tab = _EnricherTab(quick=quick)
+        self._split_tab = _SplitTab()
+        self._maps_tab = _MapsTab()
+        self._expert_tabs.addTab(self._enricher_tab, "POI Enricher")
+        self._expert_tabs.addTab(self._split_tab, "Split Waypoints")
+        self._expert_tabs.addTab(self._maps_tab, "Maps → GPX")
+        self._stack.addWidget(self._expert_tabs)  # index 1
 
         vbox.addWidget(self._stack, 1)
         self.setCentralWidget(central)
@@ -1241,6 +1358,45 @@ class MainWindow(QMainWindow):
         sb = QStatusBar()
         sb.showMessage("Ready.")
         self.setStatusBar(sb)
+
+        self._restore_gui_settings()
+
+    def _restore_gui_settings(self) -> None:
+        s = _gui_settings()
+        geo = s.value("main/geometry")
+        if geo is not None:
+            self.restoreGeometry(geo)  # type: ignore[arg-type]
+        mode_idx = int(s.value("main/mode_stack_index", 0, type=int))
+        mode_idx = 0 if mode_idx not in (0, 1) else mode_idx
+        if mode_idx == 1:
+            self._expert_btn.setChecked(True)
+            self._easy_btn.setChecked(False)
+            self._stack.setCurrentIndex(1)
+        else:
+            self._easy_btn.setChecked(True)
+            self._expert_btn.setChecked(False)
+            self._stack.setCurrentIndex(0)
+        et = int(s.value("main/expert_tab_index", 0, type=int))
+        et = max(0, min(et, self._expert_tabs.count() - 1))
+        self._expert_tabs.setCurrentIndex(et)
+        self._easy_widget.read_gui_settings(s)
+        self._enricher_tab.read_gui_settings(s)
+        self._split_tab.read_gui_settings(s)
+        self._maps_tab.read_gui_settings(s)
+
+    def _save_gui_settings(self) -> None:
+        s = _gui_settings()
+        s.setValue("main/geometry", self.saveGeometry())
+        s.setValue("main/mode_stack_index", self._stack.currentIndex())
+        s.setValue("main/expert_tab_index", self._expert_tabs.currentIndex())
+        self._easy_widget.write_gui_settings(s)
+        self._enricher_tab.write_gui_settings(s)
+        self._split_tab.write_gui_settings(s)
+        self._maps_tab.write_gui_settings(s)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self._save_gui_settings()
+        super().closeEvent(event)
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
