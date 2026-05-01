@@ -13,10 +13,15 @@ def _list_profiles() -> None:
     profiles = load_all_profiles()
     print("Available profiles (pass the id with --profile):\n")
     for p in profiles.values():
+        ec = (
+            "off"
+            if not p.early_cancel_if_no_pois
+            else f"after {p.early_cancel_after_batches} empty batches"
+        )
         print(
             f"  {p.id:<22} {p.description}\n"
             f"  {'':22} max_km={p.max_km}  sample_km={p.sample_km}  "
-            f"batch_size={p.batch_size}  retries={p.retries}\n"
+            f"batch_size={p.batch_size}  retries={p.retries}  early_cancel={ec}\n"
         )
 
 

@@ -46,10 +46,39 @@ def test_load_profile_camping_has_tags(profiles_dir):
     assert len(profile.tags) > 0
 
 
+def test_load_profile_attractions_family_disables_early_cancel(profiles_dir):
+    """attractions_family disables empty-batch early exit (sparse POIs)."""
+    profile = load_profile("attractions_family", profiles_dir=profiles_dir)
+    assert profile.early_cancel_if_no_pois is False
+
+
+def test_load_profile_invalid_early_cancel_after_batches_raises(tmp_path):
+    """early_cancel_after_batches < 1 with early cancel on must raise ValueError."""
+    profile_data = {
+        "id": "bad_early",
+        "description": "x",
+        "symbol": "Pin",
+        "defaults": {
+            "max_km": 5.0,
+            "sample_km": 10.0,
+            "batch_size": 2,
+            "retries": 1,
+            "early_cancel_if_no_pois": True,
+            "early_cancel_after_batches": 0,
+        },
+        "tags": [],
+        "terms": {"EN": ["test"]},
+    }
+    path = tmp_path / "bad_early.yaml"
+    path.write_text(yaml.dump(profile_data), encoding="utf-8")
+    with pytest.raises(ValueError, match="early_cancel_after_batches"):
+        load_profile("bad_early", profiles_dir=tmp_path)
+
+
 def test_load_profile_camping_must_match_terms(profiles_dir):
-    """Camping profile opts into AND-combined tag + term Overpass queries."""
+    """Camping profile uses default OR semantics (tags ∪ term hits)."""
     profile = load_profile("camping", profiles_dir=profiles_dir)
-    assert profile.must_match_terms is True
+    assert profile.must_match_terms is False
 
 
 def test_load_profile_restaurant_default_must_match_terms(profiles_dir):

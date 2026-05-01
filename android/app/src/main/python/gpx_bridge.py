@@ -304,7 +304,7 @@ def easy_generate(
             stem = pathlib.Path(tpath).stem
             outp = str(out_dir / f"{stem}-{profile_id}.gpx")
             sys.stderr.write(f"Enriching: {tpath} → {outp}\n")
-            early_cancel = stem == primary_stem
+            early_cancel = None if stem == primary_stem else False
             items = enrich_gpx_file(
                 tpath,
                 outp,
