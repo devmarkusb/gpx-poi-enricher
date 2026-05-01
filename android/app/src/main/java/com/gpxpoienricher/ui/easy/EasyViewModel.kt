@@ -28,7 +28,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
         val trackReused: Boolean,
         val alternateFullPaths: List<String> = emptyList(),
         val detourResults: List<DetourPoi> = emptyList(),
-        /** Waypoint-only ``-milestones.gpx`` files (no track), one per enriched route when enabled. */
+        /** Waypoint-only ``-milestones.gpx`` files (no track), one per full route when enabled (not detours). */
         val milestonePaths: List<String> = emptyList(),
     )
 

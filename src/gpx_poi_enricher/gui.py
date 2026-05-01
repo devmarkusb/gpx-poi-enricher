@@ -62,7 +62,7 @@ from .route_detours import (
     alternate_redundant_with_prior,
     extract_detour_segments,
 )
-from .split_cli import add_split_waypoints, milestone_sidecar_path
+from .split_cli import add_split_waypoints, is_detour_track_path, milestone_sidecar_path
 
 # ── Stderr capture ─────────────────────────────────────────────────────────────
 
@@ -409,7 +409,7 @@ class _EasyWorker(QThread):
     tracks_ready = pyqtSignal(object)  # list[str] — GPX paths passed to enrichment
     milestone_paths_ready = pyqtSignal(
         object
-    )  # list[str] — waypoint-only -milestones.gpx per track
+    )  # list[str] — waypoint-only -milestones.gpx per full route (not detour fragments)
     pois_done = pyqtSignal(object)  # list[tuple[str, int]] — output GPX path + POI count each
     error = pyqtSignal(str)
     finished = pyqtSignal()
@@ -534,6 +534,8 @@ class _EasyWorker(QThread):
             milestone_output_paths: list[str] = []
             if self._split_segments >= 2:
                 for tpath in tracks_to_enrich:
+                    if is_detour_track_path(tpath):
+                        continue
                     mpath = milestone_sidecar_path(tpath)
                     add_split_waypoints(tpath, mpath, self._split_segments)
                     milestone_output_paths.append(mpath)
@@ -648,9 +650,9 @@ class _EasyTab(QWidget):
         self._milestone_parts.setSpecialValueText("Off")
         self._milestone_parts.setValue(0)
         self._milestone_parts.setToolTip(
-            "Divide each generated route into N equal parts and write a separate waypoint-only "
-            "GPX named «stem»-milestones.gpx (1/N … N/N) next to each track. Useful as checkmarks "
-            "for orientation (fraction completed). 0 = off."
+            "Divide each full-route GPX into N equal parts and write a separate waypoint-only "
+            "GPX named «stem»-milestones.gpx (1/N … N/N) next to it. Detour fragment files "
+            "(«stem»-detour-NN.gpx) are skipped. Useful as checkmarks for orientation. 0 = off."
         )
         cfg_l.addRow("Track milestones (parts):", self._milestone_parts)
         dir_w, self._output_dir_edit = _dir_row("Select Output Folder", str(pathlib.Path.home()))

@@ -96,6 +96,15 @@ def milestone_sidecar_path(track_path: str | pathlib.Path) -> str:
     return str(p.with_name(f"{p.stem}-milestones{p.suffix}"))
 
 
+def is_detour_track_path(track_path: str | pathlib.Path) -> bool:
+    """True for ``*``-detour-``NN`` fragment GPX from Easy / Maps→GPX (not milestoned automatically)."""
+    stem = pathlib.Path(track_path).stem
+    if "-detour-" not in stem:
+        return False
+    tail = stem.rsplit("-detour-", 1)[-1]
+    return len(tail) == 2 and tail.isdigit()
+
+
 def add_split_waypoints(input_file: str, output_file: str, segments: int = 10) -> None:
     """Write a GPX containing only milestone waypoints (no track)."""
     with open(input_file, encoding="utf-8") as f:
