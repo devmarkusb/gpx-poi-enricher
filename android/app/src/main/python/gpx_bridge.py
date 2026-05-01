@@ -27,7 +27,11 @@ from gpx_poi_enricher.route_detours import (
     alternate_redundant_with_prior,
     extract_detour_segments,
 )
-from gpx_poi_enricher.split_cli import add_split_waypoints, milestone_sidecar_path
+from gpx_poi_enricher.split_cli import (
+    add_split_waypoints,
+    is_detour_track_path,
+    milestone_sidecar_path,
+)
 
 _cancel_event = threading.Event()
 
@@ -161,7 +165,8 @@ def easy_generate(
     ``-detour-NN.gpx``, each detour enriched for POIs like the primary track.
 
     *split_segments*: if >= 2, writes a waypoint-only companion ``{stem}-milestones.gpx`` next to
-    each track (primary, alternates, detours); track GPX files are unchanged (0 = disabled).
+    each full-route track (primary and ``-full-NN`` alternates); detour fragments are skipped.
+    Track GPX files are unchanged (0 = disabled).
 
     Returns a JSON string:
         {
@@ -277,6 +282,8 @@ def easy_generate(
         ss = int(split_segments)
         if ss >= 2:
             for tpath in tracks_to_enrich:
+                if is_detour_track_path(tpath):
+                    continue
                 mpath = milestone_sidecar_path(tpath)
                 add_split_waypoints(tpath, mpath, ss)
                 milestone_paths.append(mpath)

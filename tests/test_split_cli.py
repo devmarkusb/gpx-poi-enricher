@@ -8,7 +8,12 @@ from pathlib import Path
 import gpxpy
 import gpxpy.gpx
 
-from gpx_poi_enricher.split_cli import add_split_waypoints, milestone_label, milestone_sidecar_path
+from gpx_poi_enricher.split_cli import (
+    add_split_waypoints,
+    is_detour_track_path,
+    milestone_label,
+    milestone_sidecar_path,
+)
 
 
 def _minimal_track_gpx(path: Path) -> None:
@@ -38,6 +43,15 @@ def test_milestone_labels_and_counts() -> None:
 
 def test_milestone_sidecar_path() -> None:
     assert milestone_sidecar_path("/tmp/a-b-full-02.gpx") == "/tmp/a-b-full-02-milestones.gpx"
+
+
+def test_is_detour_track_path() -> None:
+    assert is_detour_track_path("/tmp/Paris-Lyon-detour-02.gpx") is True
+    assert is_detour_track_path("Paris-Lyon-detour-99.gpx") is True
+    assert is_detour_track_path("/tmp/Paris-Lyon.gpx") is False
+    assert is_detour_track_path("/tmp/Paris-Lyon-full-02.gpx") is False
+    assert is_detour_track_path("/tmp/Paris-Lyon-detour-2.gpx") is False
+    assert is_detour_track_path("/tmp/Paris-Lyon-detour-abc.gpx") is False
 
 
 def test_sidecar_has_no_track() -> None:
