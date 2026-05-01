@@ -20,19 +20,43 @@ class GpxApp : Application() {
 
         fun profilesDir(): File = File(app.filesDir, "profiles")
 
-        internal fun init(instance: GpxApp) { app = instance }
+        internal fun init(instance: GpxApp) {
+            app = instance
+        }
 
+        /**
+         * Ensures ``profiles/builtin`` (from assets) and ``profiles/user`` (custom) exist.
+         * Legacy flat ``*.yaml`` files in the profiles root are moved into ``user/``.
+         */
         fun extractProfiles(): File {
-            val dir = profilesDir()
-            dir.mkdirs()
-            app.assets.list("profiles")?.forEach { name ->
-                File(dir, name).outputStream().use { out ->
-                    app.assets.open("profiles/$name").copyTo(out)
+            val root = profilesDir()
+            root.mkdirs()
+            val builtin = File(root, "builtin").apply { mkdirs() }
+            val user = File(root, "user").apply { mkdirs() }
+
+            root.listFiles()?.forEach { f ->
+                if (f.isFile && (f.name.endsWith(".yaml") || f.name.endsWith(".yml"))) {
+                    val dest = File(user, f.name)
+                    if (!dest.exists()) {
+                        f.renameTo(dest)
+                    } else {
+                        f.delete()
+                    }
                 }
             }
-            return dir
+
+            app.assets.list("profiles")?.forEach { name ->
+                if (name.endsWith(".yaml") || name.endsWith(".yml")) {
+                    File(builtin, name).outputStream().use { out ->
+                        app.assets.open("profiles/$name").copyTo(out)
+                    }
+                }
+            }
+            return root
         }
     }
 
-    init { init(this) }
+    init {
+        init(this)
+    }
 }

@@ -59,18 +59,20 @@ class EnricherFragment : Fragment() {
         }
 
         viewModel.profiles.observe(viewLifecycleOwner) { profiles ->
+            val keepId = viewModel.profileIdAtSpinnerIndex(binding.profileSpinner.selectedItemPosition)
+                .takeIf { binding.profileSpinner.adapter != null }
+                ?: if (!profileFromPrefsApplied) GuiStatePreferences.readEnricherProfileId(ctx) else null
+            if (!profileFromPrefsApplied) profileFromPrefsApplied = true
             val names = profiles.map { it.description }
             binding.profileSpinner.adapter = ArrayAdapter(
                 requireContext(), android.R.layout.simple_spinner_item, names
             ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
-            if (!profileFromPrefsApplied && profiles.isNotEmpty()) {
-                profileFromPrefsApplied = true
-                val want = GuiStatePreferences.readEnricherProfileId(ctx)
-                if (!want.isNullOrBlank()) {
-                    val idx = profiles.indexOfFirst { it.id == want }
-                    if (idx >= 0) binding.profileSpinner.setSelection(idx)
-                }
-            }
+            if (profiles.isEmpty()) return@observe
+            val idx = when {
+                !keepId.isNullOrBlank() -> profiles.indexOfFirst { it.id == keepId }
+                else -> 0
+            }.let { if (it >= 0) it else 0 }
+            binding.profileSpinner.setSelection(idx.coerceAtMost(profiles.lastIndex))
         }
 
         viewModel.inputName.observe(viewLifecycleOwner) { name ->
@@ -114,6 +116,11 @@ class EnricherFragment : Fragment() {
         }
 
         binding.btnCancel.setOnClickListener { viewModel.cancel() }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.reloadProfiles()
     }
 
     override fun onStop() {

@@ -47,6 +47,10 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
     private var job: Job? = null
 
     init {
+        reloadProfiles()
+    }
+
+    fun reloadProfiles() {
         viewModelScope.launch(Dispatchers.IO) {
             val dir = GpxApp.extractProfiles()
             val json = Python.getInstance().getModule("gpx_bridge")
@@ -129,7 +133,14 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
     private fun parseProfiles(json: String): List<ProfileInfo> {
         val arr = org.json.JSONArray(json)
         return (0 until arr.length())
-            .map { arr.getJSONObject(it).let { o -> ProfileInfo(o.getString("id"), o.getString("description")) } }
-            .sortedBy { it.description }
+            .map { i ->
+                val o = arr.getJSONObject(i)
+                ProfileInfo(
+                    o.getString("id"),
+                    o.getString("description"),
+                    o.optString("source", "builtin"),
+                )
+            }
+            .sortedWith(compareBy({ it.source == "user" }, { it.description.lowercase() }))
     }
 }

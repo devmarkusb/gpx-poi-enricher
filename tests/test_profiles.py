@@ -9,7 +9,14 @@ from __future__ import annotations
 import pytest
 import yaml
 
-from gpx_poi_enricher.profiles import SearchProfile, load_all_profiles, load_profile
+from gpx_poi_enricher.profiles import (
+    SearchProfile,
+    dump_profile_yaml,
+    load_all_profiles,
+    load_profile,
+    profile_from_yaml_text,
+    save_profile,
+)
 
 # ---------------------------------------------------------------------------
 # load_profile – happy path
@@ -280,3 +287,53 @@ def test_search_profile_is_frozen():
     profile = _make_profile()
     with pytest.raises(Exception):  # dataclasses.FrozenInstanceError
         profile.id = "modified"  # type: ignore[misc]
+
+
+def _minimal_profile_dict(profile_id: str, description: str) -> dict:
+    return {
+        "id": profile_id,
+        "description": description,
+        "symbol": "Pin",
+        "defaults": {"max_km": 5.0, "sample_km": 10.0, "batch_size": 2, "retries": 1},
+        "tags": [{"key": "tourism", "value": "attraction"}],
+        "terms": {"EN": ["test"]},
+    }
+
+
+def test_merged_builtin_user_layout_user_wins(tmp_path):
+    """When *profiles_dir* has builtin/ and user/, the user file wins for the same id."""
+    root = tmp_path / "root"
+    (root / "builtin").mkdir(parents=True)
+    (root / "user").mkdir(parents=True)
+    (root / "builtin" / "same.yaml").write_text(
+        yaml.dump(_minimal_profile_dict("same", "from builtin")), encoding="utf-8"
+    )
+    (root / "user" / "same.yaml").write_text(
+        yaml.dump(_minimal_profile_dict("same", "from user")), encoding="utf-8"
+    )
+    merged = load_all_profiles(profiles_dir=root)
+    assert merged["same"].description == "from user"
+    assert load_profile("same", profiles_dir=root).description == "from user"
+
+
+def test_dump_yaml_roundtrip_matches_id(profiles_dir):
+    """dump_profile_yaml → profile_from_yaml_text preserves id and key fields."""
+    p = load_profile("camping", profiles_dir=profiles_dir)
+    p2 = profile_from_yaml_text(dump_profile_yaml(p))
+    assert p2.id == p.id
+    assert p2.description == p.description
+    assert p2.max_km == p.max_km
+
+
+def test_save_profile_writes_user_file(tmp_path):
+    """save_profile writes under *profiles_dir*/user/ for Android-style roots."""
+    root = tmp_path / "root"
+    (root / "builtin").mkdir(parents=True)
+    (root / "user").mkdir(parents=True)
+    prof = profile_from_yaml_text(
+        yaml.dump(_minimal_profile_dict("alpha", "saved here")),
+    )
+    path = save_profile(prof, profiles_dir=root)
+    assert path.parent == root / "user"
+    assert path.exists()
+    assert load_profile("alpha", profiles_dir=root).description == "saved here"

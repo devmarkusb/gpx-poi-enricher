@@ -21,7 +21,17 @@ from gpx_poi_enricher.maps_to_gpx_cli import (
     _write_gpx_segments,
     parse_waypoints_from_url,
 )
-from gpx_poi_enricher.profiles import load_all_profiles
+from gpx_poi_enricher.profiles import (
+    delete_user_profile,
+    dump_profile_yaml,
+    load_all_profiles_with_sources,
+    load_profile,
+    profile_from_json_text,
+    profile_from_yaml_text,
+    profile_to_mapping,
+    save_profile,
+    template_profile,
+)
 from gpx_poi_enricher.route_detours import (
     alternate_is_reverse_itinerary,
     alternate_redundant_with_prior,
@@ -63,8 +73,49 @@ class _LogStream:
 
 
 def list_profiles(profiles_dir: str) -> str:
-    profiles = load_all_profiles(pathlib.Path(profiles_dir))
-    return json.dumps([{"id": p.id, "description": p.description} for p in profiles.values()])
+    meta = load_all_profiles_with_sources(pathlib.Path(profiles_dir))
+    rows = [
+        {"id": pid, "description": prof.description, "source": src}
+        for pid, (prof, src) in meta.items()
+    ]
+    rows.sort(key=lambda r: (r["source"] != "user", r["description"].lower()))
+    return json.dumps(rows)
+
+
+def get_profile_json(profiles_dir: str, profile_id: str) -> str:
+    p = load_profile(profile_id.strip().lower(), pathlib.Path(profiles_dir))
+    return json.dumps(profile_to_mapping(p), indent=2)
+
+
+def save_profile_json(profiles_dir: str, json_payload: str) -> str:
+    p = profile_from_json_text(json_payload)
+    path = save_profile(p, pathlib.Path(profiles_dir))
+    return str(path)
+
+
+def save_profile_yaml(profiles_dir: str, yaml_payload: str) -> str:
+    p = profile_from_yaml_text(yaml_payload)
+    path = save_profile(p, pathlib.Path(profiles_dir))
+    return str(path)
+
+
+def export_profile_yaml(profiles_dir: str, profile_id: str) -> str:
+    p = load_profile(profile_id.strip().lower(), pathlib.Path(profiles_dir))
+    return dump_profile_yaml(p)
+
+
+def get_profile_yaml(profiles_dir: str, profile_id: str) -> str:
+    p = load_profile(profile_id.strip().lower(), pathlib.Path(profiles_dir))
+    return dump_profile_yaml(p)
+
+
+def new_profile_template_yaml() -> str:
+    return dump_profile_yaml(template_profile())
+
+
+def delete_profile(profiles_dir: str, profile_id: str) -> str:
+    ok = delete_user_profile(profile_id.strip().lower(), pathlib.Path(profiles_dir))
+    return json.dumps({"deleted": ok})
 
 
 def enrich(

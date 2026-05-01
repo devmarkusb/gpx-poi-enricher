@@ -7,6 +7,7 @@
     <string name="tab_enricher">POI Enricher</string>
     <string name="tab_split">Track milestones</string>
     <string name="tab_maps">Maps → GPX</string>
+    <string name="tab_profiles">Profiles</string>
 
     <!-- Labels -->
     <string name="label_input_gpx">Input GPX File (with track)</string>
@@ -47,4 +48,14 @@
 
     <!-- Misc -->
     <string name="no_file_selected">No file selected</string>
+
+    <!-- Profiles editor -->
+    <string name="helper_profiles_yaml">Edit the YAML definition (same format as the desktop app). Save writes under your user profiles folder; built-ins stay in the app bundle.</string>
+    <string name="hint_profile_yaml">Profile YAML</string>
+    <string name="btn_save_profile">Save</string>
+    <string name="btn_revert_profile">Reload</string>
+    <string name="btn_new_profile_template">New template</string>
+    <string name="btn_import_yaml">Import YAML</string>
+    <string name="btn_export_yaml">Export YAML</string>
+    <string name="btn_delete_user_profile">Delete user copy</string>
 </resources>
