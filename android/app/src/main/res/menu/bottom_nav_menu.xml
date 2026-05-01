@@ -21,4 +21,9 @@
         android:icon="@drawable/ic_map"
         android:title="@string/tab_maps" />
 
+    <item
+        android:id="@+id/nav_profiles"
+        android:icon="@drawable/ic_profiles"
+        android:title="@string/tab_profiles" />
+
 </menu>

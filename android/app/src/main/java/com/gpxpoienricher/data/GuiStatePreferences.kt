@@ -37,7 +37,7 @@ object GuiStatePreferences {
         ctx.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     fun isKnownNavDestination(id: Int): Boolean = when (id) {
-        R.id.nav_easy, R.id.nav_enricher, R.id.nav_split, R.id.nav_maps -> true
+        R.id.nav_easy, R.id.nav_enricher, R.id.nav_split, R.id.nav_maps, R.id.nav_profiles -> true
         else -> false
     }
 

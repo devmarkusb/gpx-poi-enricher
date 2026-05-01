@@ -48,6 +48,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .enricher import enrich_gpx_file
+from .gui_profiles import ProfilesManagerTab
 from .maps_to_gpx_cli import (
     _expand_url,
     _resolve_waypoints,
@@ -716,12 +717,19 @@ class _EasyTab(QWidget):
         root.addWidget(splitter, 1)
 
     def _load_profiles(self) -> None:
+        self._profile_combo.clear()
+        self._profiles = {}
         try:
             self._profiles = load_all_profiles()
-            for p in self._profiles.values():
+            for p in sorted(self._profiles.values(), key=lambda x: x.description.lower()):
                 self._profile_combo.addItem(f"{p.id}  —  {p.description}", p.id)
         except Exception as exc:
             _append_log(self._log, f"Warning: could not load profiles: {exc}")
+
+    def reload_profiles(self) -> None:
+        cur = self._profile_combo.currentData()
+        self._load_profiles()
+        _set_combo_profile_id(self._profile_combo, cur if cur else "")
 
     def _run(self) -> None:
         primary = self._url_edit.text().strip()
@@ -1011,12 +1019,20 @@ class _EnricherTab(QWidget):
     # ── Profile loading ────────────────────────────────────────────────────────
 
     def _load_profiles(self) -> None:
+        self._profile_combo.clear()
+        self._profiles = {}
         try:
             self._profiles = load_all_profiles()
-            for p in self._profiles.values():
+            for p in sorted(self._profiles.values(), key=lambda x: x.description.lower()):
                 self._profile_combo.addItem(f"{p.id}  —  {p.description}", p.id)
         except Exception as exc:
             _append_log(self._log, f"Warning: could not load profiles: {exc}")
+
+    def reload_profiles(self) -> None:
+        cur = self._profile_combo.currentData()
+        self._load_profiles()
+        _set_combo_profile_id(self._profile_combo, cur if cur else "")
+        self._on_profile_changed()
 
     def _on_profile_changed(self) -> None:
         pid = self._profile_combo.currentData()
@@ -1420,9 +1436,12 @@ class MainWindow(QMainWindow):
         self._enricher_tab = _EnricherTab(quick=quick)
         self._split_tab = _SplitTab()
         self._maps_tab = _MapsTab()
+        self._profiles_tab = ProfilesManagerTab()
+        self._profiles_tab.profiles_changed.connect(self._on_profiles_changed)
         self._expert_tabs.addTab(self._enricher_tab, "POI Enricher")
         self._expert_tabs.addTab(self._split_tab, "Track milestones")
         self._expert_tabs.addTab(self._maps_tab, "Maps → GPX")
+        self._expert_tabs.addTab(self._profiles_tab, "Profiles")
         self._stack.addWidget(self._expert_tabs)  # index 1
 
         vbox.addWidget(self._stack, 1)
@@ -1436,6 +1455,10 @@ class MainWindow(QMainWindow):
         self.setStatusBar(sb)
 
         self._restore_gui_settings()
+
+    def _on_profiles_changed(self) -> None:
+        self._easy_widget.reload_profiles()
+        self._enricher_tab.reload_profiles()
 
     def _restore_gui_settings(self) -> None:
         s = _gui_settings()

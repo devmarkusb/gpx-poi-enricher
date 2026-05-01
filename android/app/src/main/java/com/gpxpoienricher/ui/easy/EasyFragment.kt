@@ -38,6 +38,10 @@ class EasyFragment : Fragment() {
         binding.editMilestoneParts.setText(GuiStatePreferences.readEasyMilestoneParts(ctx).toString())
 
         vm.profiles.observe(viewLifecycleOwner) { profiles ->
+            val keepId = vm.profileIdAtSpinnerIndex(binding.spinnerProfile.selectedItemPosition)
+                .takeIf { binding.spinnerProfile.adapter != null }
+                ?: if (!profileFromPrefsApplied) GuiStatePreferences.readEasyProfileId(ctx) else null
+            if (!profileFromPrefsApplied) profileFromPrefsApplied = true
             val adapter = ArrayAdapter(
                 requireContext(),
                 android.R.layout.simple_spinner_item,
@@ -45,14 +49,12 @@ class EasyFragment : Fragment() {
             )
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
             binding.spinnerProfile.adapter = adapter
-            if (!profileFromPrefsApplied && profiles.isNotEmpty()) {
-                profileFromPrefsApplied = true
-                val want = GuiStatePreferences.readEasyProfileId(ctx)
-                if (!want.isNullOrBlank()) {
-                    val idx = profiles.indexOfFirst { it.id == want }
-                    if (idx >= 0) binding.spinnerProfile.setSelection(idx)
-                }
-            }
+            if (profiles.isEmpty()) return@observe
+            val idx = when {
+                !keepId.isNullOrBlank() -> profiles.indexOfFirst { it.id == keepId }
+                else -> 0
+            }.let { if (it >= 0) it else 0 }
+            binding.spinnerProfile.setSelection(idx.coerceAtMost(profiles.lastIndex))
         }
 
         vm.isRunning.observe(viewLifecycleOwner) { running ->
@@ -123,6 +125,11 @@ class EasyFragment : Fragment() {
         }
 
         binding.btnCancel.setOnClickListener { vm.cancel() }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        vm.reloadProfiles()
     }
 
     override fun onStop() {
