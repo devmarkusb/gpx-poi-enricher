@@ -30,6 +30,7 @@ def _make_profile(
     sample_km: float = 5.0,
     batch_size: int = 4,
     retries: int = 2,
+    must_match_terms: bool = False,
 ) -> SearchProfile:
     """Build a minimal SearchProfile for overpass tests."""
     if terms is None:
@@ -44,6 +45,7 @@ def _make_profile(
         sample_km=sample_km,
         batch_size=batch_size,
         retries=retries,
+        must_match_terms=must_match_terms,
     )
 
 
@@ -128,9 +130,17 @@ def test_element_latlon_direct_lat_lon_takes_priority():
 # ---------------------------------------------------------------------------
 
 
-def test_build_overpass_query_tags_and_terms_single_query():
-    """Profiles with tags and terms must return one script AND-combining both."""
+def test_build_overpass_query_raises_when_tags_and_terms_without_must_match():
+    """Single-query helper must refuse profiles that emit two Overpass scripts."""
     profile = _make_profile()
+    pts = [(48.1351, 11.5820)]
+    with pytest.raises(ValueError, match="build_overpass_queries"):
+        build_overpass_query(pts, max_km=10.0, profile=profile, country_code="DE")
+
+
+def test_build_overpass_query_tags_and_terms_single_query_when_must_match():
+    """With must_match_terms, tags and terms are AND-combined in one script."""
+    profile = _make_profile(must_match_terms=True)
     pts = [(48.1351, 11.5820)]
     q = build_overpass_query(pts, max_km=10.0, profile=profile, country_code="DE")
     assert '"tourism"="camp_site"' in q
@@ -138,13 +148,32 @@ def test_build_overpass_query_tags_and_terms_single_query():
     assert '["tourism"="camp_site"]["name"~"' in q
 
 
-def test_build_overpass_queries_tags_and_terms_single_and_combined():
-    """Profiles with both tags and terms must yield one Overpass script; each line ANDs them."""
+def test_build_overpass_queries_tags_and_terms_split_without_must_match():
+    """Default: tags + terms yield two scripts (merged OR-style by enricher)."""
     profile = _make_profile(
         tags=(
             {"key": "tourism", "value": "camp_site"},
             {"key": "tourism", "value": "caravan_site"},
         ),
+    )
+    pts = [(48.0, 11.0)]
+    qs = build_overpass_queries(pts, max_km=10.0, profile=profile, country_code="DE")
+    assert len(qs) == 2
+    tag_q, term_q = qs
+    assert '"tourism"="camp_site"' in tag_q
+    assert '"tourism"="caravan_site"' in tag_q
+    assert "Campingplatz" in term_q and "campsite" in term_q
+    assert '["name"~"' in term_q
+
+
+def test_build_overpass_queries_tags_and_terms_single_when_must_match():
+    """must_match_terms yields one script; each line ANDs tag predicates with regex."""
+    profile = _make_profile(
+        tags=(
+            {"key": "tourism", "value": "camp_site"},
+            {"key": "tourism", "value": "caravan_site"},
+        ),
+        must_match_terms=True,
     )
     pts = [(48.0, 11.0)]
     qs = build_overpass_queries(pts, max_km=10.0, profile=profile, country_code="DE")

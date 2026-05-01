@@ -116,20 +116,25 @@ def build_overpass_queries(
     profile: SearchProfile,
     country_code: str,
 ) -> list[str]:
-    """Build Overpass QL for *profile* (always a single HTTP-ready script).
+    """Build one or two Overpass QL scripts for *profile*.
 
-    When both OSM tag filters and search terms apply, tag predicates and regex
-    filters are **AND**-combined on each selector line; name, description, and
-    operator are separate union branches (any one may match the terms).
+    When both OSM tag filters and search terms apply:
+
+    - If ``profile.must_match_terms`` is true, emit a **single** script that
+      **AND**-combines tag predicates with name/description/operator regex
+      branches (each branch is tag predicates plus one text field).
+    - Otherwise emit **two** scripts (tag selectors, then term regex
+      selectors); the enricher merges element lists so results are tag hits
+      **or** text hits.
 
     Returns:
-        A one-element list containing the query string, or raises if nothing to query.
+        One or two query strings, or raises if nothing could be built.
     """
     radius_m = int(max_km * 1000)
     tag_lines = _collect_tag_lines(points, radius_m, profile)
     term_lines = _collect_term_lines(points, radius_m, profile, country_code)
 
-    if tag_lines and term_lines:
+    if tag_lines and term_lines and profile.must_match_terms:
         combined = _collect_tag_and_term_lines(points, radius_m, profile, country_code)
         if not combined:
             raise ValueError(
@@ -160,12 +165,17 @@ def build_overpass_query(
     profile: SearchProfile,
     country_code: str,
 ) -> str:
-    """Build the single Overpass QL script for *profile* (delegates to :func:`build_overpass_queries`)."""
+    """Build a single Overpass QL script (tags-only, terms-only, or AND-combined).
+
+    Raises:
+        ValueError: If the profile needs two separate Overpass requests
+            (tags and terms both apply and ``must_match_terms`` is false).
+    """
     queries = build_overpass_queries(points, max_km, profile, country_code)
     if len(queries) != 1:
         raise ValueError(
-            f"Internal error: expected exactly one Overpass query for profile "
-            f"'{profile.id}', got {len(queries)}."
+            f"Profile '{profile.id}' uses tags and terms without must_match_terms; "
+            f"use build_overpass_queries() for {len(queries)} Overpass request(s)."
         )
     return queries[0]
 
