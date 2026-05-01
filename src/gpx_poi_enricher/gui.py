@@ -192,10 +192,18 @@ def _safe_filename(label: str) -> str:
     return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", label).strip(". ")
 
 
+def _mono_font(point_size: int = 9) -> QFont:
+    """System monospace via style hint; avoids the non-font CSS name Monospace on macOS."""
+    f = QFont()
+    f.setStyleHint(QFont.StyleHint.Monospace)
+    f.setPointSize(point_size)
+    return f
+
+
 def _log_widget() -> QPlainTextEdit:
     w = QPlainTextEdit()
     w.setReadOnly(True)
-    w.setFont(QFont("Monospace", 9))
+    w.setFont(_mono_font())
     w.setMaximumBlockCount(5000)
     return w
 
@@ -697,7 +705,7 @@ class _EasyTab(QWidget):
         self._results_edit = QPlainTextEdit()
         self._results_edit.setReadOnly(True)
         self._results_edit.setPlainText("—")
-        self._results_edit.setFont(QFont("Monospace", 9))
+        self._results_edit.setFont(_mono_font())
         self._results_edit.setMaximumHeight(140)
         self._results_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._results_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
