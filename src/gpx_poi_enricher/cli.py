@@ -73,6 +73,14 @@ def _build_parser() -> argparse.ArgumentParser:
             "Individual --sample-km / --max-km / --country-sample-km still override."
         ),
     )
+    ap.add_argument(
+        "--checkpoint-each-batch",
+        action="store_true",
+        help=(
+            "After each Overpass batch, overwrite the output GPX with POIs found so far "
+            "(same file as the final result). Useful if the run may be interrupted."
+        ),
+    )
     return ap
 
 
@@ -119,7 +127,13 @@ def main() -> None:
         "verbose": args.verbose,
     }
 
-    enrich_gpx_file(args.input_gpx, args.output_gpx, profile_id, **kwargs)
+    enrich_gpx_file(
+        args.input_gpx,
+        args.output_gpx,
+        profile_id,
+        checkpoint_each_batch=args.checkpoint_each_batch,
+        **kwargs,
+    )
 
 
 if __name__ == "__main__":

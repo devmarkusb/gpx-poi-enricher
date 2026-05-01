@@ -510,3 +510,64 @@ def test_enrich_gpx_file_missing_input_raises(tmp_path, profiles_dir):
             profiles_dir=profiles_dir,
             progress_interval=0,
         )
+
+
+@resp_lib.activate
+def test_enrich_track_on_batch_checkpoint_once_per_batch(sample_track_points):
+    """on_batch_checkpoint must run after every Overpass batch (here: five batches)."""
+    resp_lib.add(resp_lib.GET, NOMINATIM_URL, json=_nominatim_json("de"), status=200)
+    _stub_overpass(_overpass_empty_response())
+
+    profile = _make_profile(
+        batch_size=1,
+        sample_km=1.0,
+        early_cancel_if_no_pois=False,
+    )
+    calls: list[int] = []
+
+    def _cb(items: list) -> None:
+        calls.append(len(items))
+
+    with (
+        patch("gpx_poi_enricher.geocoding.time.sleep"),
+        patch("gpx_poi_enricher.enricher.time.sleep"),
+        patch("gpx_poi_enricher.overpass.time.sleep"),
+    ):
+        enrich_track(
+            sample_track_points,
+            profile,
+            progress_interval=0,
+            on_batch_checkpoint=_cb,
+        )
+
+    assert calls == [0, 0, 0, 0, 0]
+
+
+@resp_lib.activate
+def test_enrich_gpx_file_checkpoint_each_batch_no_stale_tmp(
+    sample_gpx_path, tmp_path, profiles_dir
+):
+    """With checkpoint_each_batch, the output must exist and no .tmp must remain."""
+    resp_lib.add(resp_lib.GET, NOMINATIM_URL, json=_nominatim_json("de"), status=200)
+    _stub_overpass(_overpass_response_with_campsite())
+
+    output_path = tmp_path / "out.gpx"
+
+    with (
+        patch("gpx_poi_enricher.geocoding.time.sleep"),
+        patch("gpx_poi_enricher.enricher.time.sleep"),
+    ):
+        enrich_gpx_file(
+            sample_gpx_path,
+            str(output_path),
+            profile_id="camping",
+            profiles_dir=profiles_dir,
+            progress_interval=0,
+            checkpoint_each_batch=True,
+        )
+
+    assert output_path.exists()
+    assert not (tmp_path / "out.gpx.tmp").exists()
+    tree = ET.parse(str(output_path))
+    wpts = tree.getroot().findall(f"{{{GPX_NS}}}wpt")
+    assert len(wpts) >= 1
