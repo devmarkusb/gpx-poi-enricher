@@ -1,0 +1,14 @@
+id: attractions_family
+description: "Generally spectacular child-friendly attraction"
+symbol: Scenic Area
+defaults:
+  max_km: 10.0
+  sample_km: 10.0
+  batch_size: 3
+  retries: 3
+tags: []
+terms:
+  DE: ["familienfreundlich"]
+  FR: ["familial"]
+  ES: ["familiar"]
+  EN: ["family attraction", "kid friendly attraction"]

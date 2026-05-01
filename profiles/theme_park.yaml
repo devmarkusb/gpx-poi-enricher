@@ -2,8 +2,8 @@ id: theme_park
 description: "Theme Park"
 symbol: Amusement Park
 defaults:
-  max_km: 12.0
-  sample_km: 6.0
+  max_km: 5.0
+  sample_km: 15.0
   batch_size: 3
   retries: 2
 tags:

@@ -1,8 +1,6 @@
 id: camping
 description: "Campsite"
 symbol: Campground
-# Stricter: only POIs that match OSM tags *and* name/description/operator text.
-must_match_terms: true
 defaults:
   max_km: 10.0
   sample_km: 5.0
