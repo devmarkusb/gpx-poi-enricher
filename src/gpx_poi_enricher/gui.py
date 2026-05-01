@@ -566,8 +566,8 @@ class _EasyWorker(QThread):
                 stem = pathlib.Path(tpath).stem
                 poi_path = str(out_dir / f"{stem}-{self._profile_id}.gpx")
                 self.log_message.emit(f"Enriching: {tpath} → {poi_path}")
-                # Early cancel only for the primary route GPX, not detour fragments (often empty).
-                early_cancel = stem == primary_stem
+                # Primary track: honor profile early-cancel settings. Detours: never early-cancel.
+                early_cancel = None if stem == primary_stem else False
                 items = enrich_gpx_file(
                     tpath,
                     poi_path,
@@ -1014,9 +1014,14 @@ class _EnricherTab(QWidget):
         pid = self._profile_combo.currentData()
         if pid and pid in self._profiles:
             p = self._profiles[pid]
+            ec = (
+                "off"
+                if not p.early_cancel_if_no_pois
+                else f"after {p.early_cancel_after_batches} batches"
+            )
             self._profile_info.setText(
                 f"max_km={p.max_km}  sample_km={p.sample_km}  "
-                f"batch_size={p.batch_size}  retries={p.retries}"
+                f"batch_size={p.batch_size}  retries={p.retries}  early_cancel={ec}"
             )
 
     # ── Run / Cancel ───────────────────────────────────────────────────────────

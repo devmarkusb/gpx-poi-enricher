@@ -53,7 +53,8 @@ def enrich_track(
     verbose: bool = False,
     http_session: requests.Session | None = None,
     cancel_event: threading.Event | None = None,
-    early_cancel_if_no_pois: bool = True,
+    early_cancel_if_no_pois: bool | None = None,
+    early_cancel_after_batches: int | None = None,
 ) -> list[dict[str, Any]]:
     """Enrich a list of track points with nearby POIs from OpenStreetMap.
 
@@ -67,9 +68,10 @@ def enrich_track(
         progress_interval: Print progress to stderr every N seconds (0 = off).
         verbose: Print verbose Overpass error bodies to stderr.
         http_session: Optional pre-configured ``requests.Session``.
-        early_cancel_if_no_pois: If True (default), abort after a few Overpass batches
-            still yield zero POIs — suggests ``max_km`` or profile may be wrong.
-            Set False for secondary tracks (e.g. short detours) where empty batches are normal.
+        early_cancel_if_no_pois: If None (default), use the profile's ``early_cancel_if_no_pois``.
+            If True/False, override the profile for this run.
+        early_cancel_after_batches: If None, use the profile's threshold; otherwise override
+            (only applies when early cancel is enabled).
 
     Returns:
         Sorted list of POI dicts (keys: lat, lon, name, kind, distance_km, tags).
@@ -77,6 +79,18 @@ def enrich_track(
     _max_km = max_km if max_km is not None else profile.max_km
     _sample_km = sample_km if sample_km is not None else profile.sample_km
     _batch_size = batch_size if batch_size is not None else profile.batch_size
+    _early_cancel = (
+        profile.early_cancel_if_no_pois
+        if early_cancel_if_no_pois is None
+        else early_cancel_if_no_pois
+    )
+    _early_cancel_batches = (
+        profile.early_cancel_after_batches
+        if early_cancel_after_batches is None
+        else early_cancel_after_batches
+    )
+    if _early_cancel and _early_cancel_batches < 1:
+        raise ValueError("early_cancel_after_batches must be >= 1 when early cancel is enabled.")
 
     session = http_session or requests.Session()
     sampled = sample_track_by_distance(track_points, _sample_km)
@@ -119,8 +133,6 @@ def enrich_track(
     batch_num = 0
     all_candidates: OrderedDict[tuple[float, float], dict[str, Any]] = OrderedDict()
 
-    _early_cancel_batches = 3
-
     def _run_overpass_batches() -> None:
         nonlocal batch_num
         for cc, pts in country_segments.items():
@@ -149,7 +161,7 @@ def enrich_track(
                 progress_state["pois_found"] = len(all_candidates)
 
                 if (
-                    early_cancel_if_no_pois
+                    _early_cancel
                     and batch_num >= _early_cancel_batches
                     and len(all_candidates) == 0
                     and batch_num < total_batches
@@ -179,7 +191,7 @@ def enrich_gpx_file(
     output_path: str | pathlib.Path,
     profile_id: str,
     profiles_dir: pathlib.Path | None = None,
-    early_cancel_if_no_pois: bool = True,
+    early_cancel_if_no_pois: bool | None = None,
     **kwargs: Any,
 ) -> list[dict[str, Any]]:
     """High-level convenience function: load GPX, enrich, write output GPX.
@@ -189,7 +201,7 @@ def enrich_gpx_file(
         output_path: Path for the output GPX file (waypoints only).
         profile_id: Profile identifier (e.g. ``"camping"``).
         profiles_dir: Optional override for the profiles directory.
-        early_cancel_if_no_pois: Passed to :func:`enrich_track` (see there).
+        early_cancel_if_no_pois: Passed to :func:`enrich_track`; None means use the profile.
         **kwargs: Forwarded to :func:`enrich_track`.
 
     Returns:

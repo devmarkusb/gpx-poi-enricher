@@ -48,6 +48,8 @@ def _make_profile(
     sample_km: float = 500.0,  # large so we get only a few sampled points in tests
     batch_size: int = 10,
     retries: int = 1,
+    early_cancel_if_no_pois: bool = True,
+    early_cancel_after_batches: int = 3,
 ) -> SearchProfile:
     """Build a minimal SearchProfile suitable for enricher tests."""
     if terms is None:
@@ -62,6 +64,8 @@ def _make_profile(
         sample_km=sample_km,
         batch_size=batch_size,
         retries=retries,
+        early_cancel_if_no_pois=early_cancel_if_no_pois,
+        early_cancel_after_batches=early_cancel_after_batches,
     )
 
 
@@ -243,6 +247,40 @@ def test_enrich_track_no_early_cancel_runs_all_batches_when_disabled():
     ):
         result = enrich_track(pts, profile, progress_interval=0, early_cancel_if_no_pois=False)
     assert result == []
+
+
+@resp_lib.activate
+def test_enrich_track_profile_disables_early_cancel_when_kwarg_omitted():
+    """Profile early_cancel_if_no_pois=false must be honored when enrich_track omits the kwarg."""
+    pts = [(48.0 + i * 0.02, 11.0) for i in range(24)]
+    for _ in range(120):
+        resp_lib.add(resp_lib.GET, NOMINATIM_URL, json=_nominatim_json("de"), status=200)
+    _stub_overpass(_overpass_empty_response())
+    profile = _make_profile(sample_km=1.0, batch_size=3, retries=1, early_cancel_if_no_pois=False)
+    with (
+        patch("gpx_poi_enricher.geocoding.time.sleep"),
+        patch("gpx_poi_enricher.enricher.time.sleep"),
+        patch("gpx_poi_enricher.overpass.time.sleep"),
+    ):
+        result = enrich_track(pts, profile, progress_interval=0)
+    assert result == []
+
+
+@resp_lib.activate
+def test_enrich_track_early_cancel_uses_profile_batch_threshold():
+    """When enabled, early cancel must use SearchProfile.early_cancel_after_batches."""
+    pts = [(48.0 + i * 0.02, 11.0) for i in range(150)]
+    for _ in range(300):
+        resp_lib.add(resp_lib.GET, NOMINATIM_URL, json=_nominatim_json("de"), status=200)
+    _stub_overpass(_overpass_empty_response())
+    profile = _make_profile(sample_km=1.0, batch_size=3, retries=1, early_cancel_after_batches=2)
+    with (
+        patch("gpx_poi_enricher.geocoding.time.sleep"),
+        patch("gpx_poi_enricher.enricher.time.sleep"),
+        patch("gpx_poi_enricher.overpass.time.sleep"),
+    ):
+        with pytest.raises(RuntimeError, match="No POIs found after 2 batches"):
+            enrich_track(pts, profile, progress_interval=0, early_cancel_if_no_pois=True)
 
 
 @resp_lib.activate

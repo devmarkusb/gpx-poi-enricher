@@ -13,6 +13,8 @@ Each profile YAML has the structure::
       sample_km: 5.0
       batch_size: 6
       retries: 3
+      early_cancel_if_no_pois: true
+      early_cancel_after_batches: 3
     tags:
       - key: tourism
         value: camp_site
@@ -25,6 +27,14 @@ Each profile YAML has the structure::
     (tag hits OR text hits). True emits one query that requires tag filters
     and a matching name, description, or operator (stricter, fewer false
     positives).
+
+    Optional ``defaults.early_cancel_if_no_pois`` (default true): stop after
+    ``early_cancel_after_batches`` consecutive-style batches with zero POIs to
+    avoid long runs when the radius or profile is wrong. Set false to scan the
+    whole route regardless.
+
+    Optional ``defaults.early_cancel_after_batches`` (default 3): batch count
+    threshold for that early stop (minimum 1 when early cancel is enabled).
 """
 
 from __future__ import annotations
@@ -43,6 +53,8 @@ _FALLBACK_DEFAULTS = {
     "sample_km": 20.0,
     "batch_size": 4,
     "retries": 2,
+    "early_cancel_if_no_pois": True,
+    "early_cancel_after_batches": 3,
 }
 
 
@@ -57,6 +69,8 @@ class SearchProfile:
     sample_km: float
     batch_size: int
     retries: int
+    early_cancel_if_no_pois: bool = True
+    early_cancel_after_batches: int = 3
     must_match_terms: bool = False
 
     def terms_for_country(self, country_code: str) -> list[str]:
@@ -115,6 +129,14 @@ def _parse_profile(path: pathlib.Path) -> SearchProfile:
     profile_id = data.get("id") or path.stem
     defaults = {**_FALLBACK_DEFAULTS, **data.get("defaults", {})}
 
+    early_cancel = bool(defaults["early_cancel_if_no_pois"])
+    early_after = int(defaults["early_cancel_after_batches"])
+    if early_cancel and early_after < 1:
+        raise ValueError(
+            f"Profile file {path}: early_cancel_after_batches must be >= 1 "
+            f"when early_cancel_if_no_pois is true (got {early_after})."
+        )
+
     return SearchProfile(
         id=profile_id,
         description=data.get("description", profile_id),
@@ -125,5 +147,7 @@ def _parse_profile(path: pathlib.Path) -> SearchProfile:
         sample_km=float(defaults["sample_km"]),
         batch_size=int(defaults["batch_size"]),
         retries=int(defaults["retries"]),
+        early_cancel_if_no_pois=early_cancel,
+        early_cancel_after_batches=early_after,
         must_match_terms=bool(data.get("must_match_terms", False)),
     )
