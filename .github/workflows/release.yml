@@ -43,7 +43,8 @@ jobs:
   publish:
     name: Publish to PyPI
     needs: version
-    if: needs.version.outputs.released == 'true'
+    # TEMP: PyPI account broken — re-enable with: if: needs.version.outputs.released == 'true'
+    if: false
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
