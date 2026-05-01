@@ -19,6 +19,12 @@ Each profile YAML has the structure::
     terms:
       DE: ["Campingplatz"]
       EN: ["campsite"]
+
+    Optional ``must_match_terms`` (default false): when both ``tags`` and
+    ``terms`` are set, false runs two Overpass queries and merges results
+    (tag hits OR text hits). True emits one query that requires tag filters
+    and a matching name, description, or operator (stricter, fewer false
+    positives).
 """
 
 from __future__ import annotations
@@ -51,6 +57,7 @@ class SearchProfile:
     sample_km: float
     batch_size: int
     retries: int
+    must_match_terms: bool = False
 
     def terms_for_country(self, country_code: str) -> list[str]:
         """Return deduplicated search terms for *country_code* + universal EN terms."""
@@ -118,4 +125,5 @@ def _parse_profile(path: pathlib.Path) -> SearchProfile:
         sample_km=float(defaults["sample_km"]),
         batch_size=int(defaults["batch_size"]),
         retries=int(defaults["retries"]),
+        must_match_terms=bool(data.get("must_match_terms", False)),
     )

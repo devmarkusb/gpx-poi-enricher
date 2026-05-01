@@ -46,6 +46,18 @@ def test_load_profile_camping_has_tags(profiles_dir):
     assert len(profile.tags) > 0
 
 
+def test_load_profile_camping_must_match_terms(profiles_dir):
+    """Camping profile opts into AND-combined tag + term Overpass queries."""
+    profile = load_profile("camping", profiles_dir=profiles_dir)
+    assert profile.must_match_terms is True
+
+
+def test_load_profile_restaurant_default_must_match_terms(profiles_dir):
+    """Restaurant profile keeps OR semantics (tags ∪ text hits)."""
+    profile = load_profile("restaurant", profiles_dir=profiles_dir)
+    assert profile.must_match_terms is False
+
+
 def test_load_profile_camping_tag_structure(profiles_dir):
     """Each tag in the camping profile must have 'key' and 'value' keys."""
     profile = load_profile("camping", profiles_dir=profiles_dir)
