@@ -79,6 +79,33 @@ def _collect_term_lines(
     return lines
 
 
+def _collect_tag_and_term_lines(
+    points: list[tuple[float, float]],
+    radius_m: int,
+    profile: SearchProfile,
+    country_code: str,
+) -> list[str]:
+    """Tag filters AND (name OR description OR operator) regex — one statement per branch."""
+    terms = profile.terms_for_country(country_code)
+    if not terms:
+        return []
+    regex = "|".join(re.escape(t) for t in terms)
+    lines: list[str] = []
+    for lat, lon in points:
+        selectors = [
+            f"node(around:{radius_m},{lat},{lon})",
+            f"way(around:{radius_m},{lat},{lon})",
+            f"relation(around:{radius_m},{lat},{lon})",
+        ]
+        for sel in selectors:
+            for tag in profile.tags:
+                cond = _tag_condition(tag)
+                lines.append(f'{sel}{cond}["name"~"{regex}", i];')
+                lines.append(f'{sel}{cond}["description"~"{regex}", i];')
+                lines.append(f'{sel}{cond}["operator"~"{regex}", i];')
+    return lines
+
+
 def _wrap_overpass(lines: list[str]) -> str:
     return "[out:json][timeout:180];\n(\n" + "\n".join(lines) + "\n);\nout center tags;\n"
 
@@ -89,20 +116,27 @@ def build_overpass_queries(
     profile: SearchProfile,
     country_code: str,
 ) -> list[str]:
-    """Build one or two Overpass QL queries for *profile*.
+    """Build Overpass QL for *profile* (always a single HTTP-ready script).
 
-    When both OSM tag filters and search terms apply, emits **two** queries:
-    typed tag selectors first, then separate name/description/operator regex
-    selectors. A single combined request would union extremely broad regex
-    branches with narrow tag branches; servers often time out or drop the
-    whole response, yielding no POIs despite valid tag matches.
+    When both OSM tag filters and search terms apply, tag predicates and regex
+    filters are **AND**-combined on each selector line; name, description, and
+    operator are separate union branches (any one may match the terms).
 
     Returns:
-        One string if only tags or only terms apply; two strings when both apply.
+        A one-element list containing the query string, or raises if nothing to query.
     """
     radius_m = int(max_km * 1000)
     tag_lines = _collect_tag_lines(points, radius_m, profile)
     term_lines = _collect_term_lines(points, radius_m, profile, country_code)
+
+    if tag_lines and term_lines:
+        combined = _collect_tag_and_term_lines(points, radius_m, profile, country_code)
+        if not combined:
+            raise ValueError(
+                f"No Overpass query could be built for profile '{profile.id}' "
+                f"(tags + terms produced no lines for country '{country_code}')."
+            )
+        return [_wrap_overpass(combined)]
 
     queries: list[str] = []
     if tag_lines:
@@ -126,18 +160,12 @@ def build_overpass_query(
     profile: SearchProfile,
     country_code: str,
 ) -> str:
-    """Build a single Overpass QL query (tags-only or terms-only).
-
-    Raises:
-        ValueError: If the profile needs both tags and terms — use
-            :func:`build_overpass_queries` instead.
-    """
+    """Build the single Overpass QL script for *profile* (delegates to :func:`build_overpass_queries`)."""
     queries = build_overpass_queries(points, max_km, profile, country_code)
     if len(queries) != 1:
         raise ValueError(
-            f"Profile '{profile.id}' uses both tags and terms for country "
-            f"'{country_code}'; use build_overpass_queries() to run separate "
-            "Overpass requests."
+            f"Internal error: expected exactly one Overpass query for profile "
+            f"'{profile.id}', got {len(queries)}."
         )
     return queries[0]
 

@@ -128,16 +128,18 @@ def test_element_latlon_direct_lat_lon_takes_priority():
 # ---------------------------------------------------------------------------
 
 
-def test_build_overpass_query_raises_when_tags_and_terms():
-    """Single-query helper must refuse profiles that need split Overpass requests."""
+def test_build_overpass_query_tags_and_terms_single_query():
+    """Profiles with tags and terms must return one script AND-combining both."""
     profile = _make_profile()
     pts = [(48.1351, 11.5820)]
-    with pytest.raises(ValueError, match="build_overpass_queries"):
-        build_overpass_query(pts, max_km=10.0, profile=profile, country_code="DE")
+    q = build_overpass_query(pts, max_km=10.0, profile=profile, country_code="DE")
+    assert '"tourism"="camp_site"' in q
+    assert "Campingplatz" in q and "campsite" in q
+    assert '["tourism"="camp_site"]["name"~"' in q
 
 
-def test_build_overpass_queries_splits_tags_and_terms():
-    """Profiles with both tags and terms must yield two separate Overpass scripts."""
+def test_build_overpass_queries_tags_and_terms_single_and_combined():
+    """Profiles with both tags and terms must yield one Overpass script; each line ANDs them."""
     profile = _make_profile(
         tags=(
             {"key": "tourism", "value": "camp_site"},
@@ -146,12 +148,13 @@ def test_build_overpass_queries_splits_tags_and_terms():
     )
     pts = [(48.0, 11.0)]
     qs = build_overpass_queries(pts, max_km=10.0, profile=profile, country_code="DE")
-    assert len(qs) == 2
-    tag_q, term_q = qs
-    assert '"tourism"="camp_site"' in tag_q
-    assert '"tourism"="caravan_site"' in tag_q
-    assert "Campingplatz" in term_q and "campsite" in term_q
-    assert '["name"~"' in term_q
+    assert len(qs) == 1
+    q = qs[0]
+    assert '"tourism"="camp_site"' in q
+    assert '"tourism"="caravan_site"' in q
+    assert "Campingplatz" in q and "campsite" in q
+    assert '["tourism"="camp_site"]["name"~"' in q
+    assert '["tourism"="caravan_site"]["description"~"' in q
 
 
 def test_build_overpass_queries_contains_out_json():
