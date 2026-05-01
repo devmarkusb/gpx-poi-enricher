@@ -8,7 +8,7 @@ defaults:
   retries: 3
 tags: []
 terms:
-  DE: ["Kindererlebnis", "Erlebniswelt", "Familienpark", "Indoor Spielplatz"]
-  FR: ["parc de loisirs", "activité enfant", "parc familial", "aire de jeux couverte"]
-  ES: ["parque de ocio", "actividad infantil", "parque familiar", "parque infantil cubierto"]
-  EN: ["kids attraction", "family attraction", "indoor playground", "children activity"]
+  DE: ["Kindererlebnis", "Erlebniswelt", "Familienpark"]
+  FR: ["parc de loisirs", "activité enfant", "parc familial"]
+  ES: ["parque de ocio", "actividad infantil", "parque familiar"]
+  EN: ["kids attraction", "children activity"]
