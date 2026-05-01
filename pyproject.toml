@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gpx-poi-enricher"
-version = "1.1.0"
+version = "1.2.0"
 description = "Enrich GPX tracks with Points of Interest from OpenStreetMap via configurable YAML profiles"
 readme = "README.md"
 license = { text = "MIT" }
