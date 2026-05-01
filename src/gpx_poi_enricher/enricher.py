@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import copy
+import os
 import pathlib
 import sys
 import threading
 import time
+import xml.etree.ElementTree as ET
 from collections import OrderedDict
+from collections.abc import Callable
 from typing import Any
 
 import requests
@@ -21,6 +25,31 @@ from .gpx_utils import (
 from .overpass import build_overpass_queries, extract_candidates, query_overpass
 from .profiles import SearchProfile, load_profile
 from .progress import ProgressHeartbeat
+
+
+def _sorted_poi_items(
+    candidates: OrderedDict[tuple[float, float], dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return sorted(candidates.values(), key=lambda x: (x["distance_km"], x["name"].lower()))
+
+
+def _write_waypoints_gpx_snapshot(
+    root_template: ET.Element,
+    items: list[dict[str, Any]],
+    output_path: str | pathlib.Path,
+    *,
+    symbol: str,
+    type_label: str,
+) -> None:
+    """Write a waypoints-only GPX to *output_path* (atomic replace when possible)."""
+    root = copy.deepcopy(root_template)
+    add_waypoints_to_gpx(root, items, symbol=symbol, type_label=type_label)
+    remove_tracks_and_routes(root)
+    tree = ET.ElementTree(root)
+    outp = pathlib.Path(output_path)
+    tmp = outp.with_name(outp.name + ".tmp")
+    tree.write(str(tmp), encoding="utf-8", xml_declaration=True)
+    os.replace(tmp, outp)
 
 
 def _chunked(seq: list, size: int):
@@ -55,6 +84,7 @@ def enrich_track(
     cancel_event: threading.Event | None = None,
     early_cancel_if_no_pois: bool | None = None,
     early_cancel_after_batches: int | None = None,
+    on_batch_checkpoint: Callable[[list[dict[str, Any]]], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Enrich a list of track points with nearby POIs from OpenStreetMap.
 
@@ -72,6 +102,8 @@ def enrich_track(
             If True/False, override the profile for this run.
         early_cancel_after_batches: If None, use the profile's threshold; otherwise override
             (only applies when early cancel is enabled).
+        on_batch_checkpoint: If set, called after each Overpass batch with the current sorted
+            POI list (same ordering as the return value) so callers can persist partial results.
 
     Returns:
         Sorted list of POI dicts (keys: lat, lon, name, kind, distance_km, tags).
@@ -173,6 +205,9 @@ def enrich_track(
                         f"or switching to a broader profile."
                     )
 
+                if on_batch_checkpoint is not None:
+                    on_batch_checkpoint(_sorted_poi_items(all_candidates))
+
                 time.sleep(1.0)
                 if cancel_event is not None and cancel_event.is_set():
                     raise RuntimeError("Operation cancelled by user.")
@@ -183,7 +218,7 @@ def enrich_track(
     else:
         _run_overpass_batches()
 
-    return sorted(all_candidates.values(), key=lambda x: (x["distance_km"], x["name"].lower()))
+    return _sorted_poi_items(all_candidates)
 
 
 def enrich_gpx_file(
@@ -192,6 +227,8 @@ def enrich_gpx_file(
     profile_id: str,
     profiles_dir: pathlib.Path | None = None,
     early_cancel_if_no_pois: bool | None = None,
+    *,
+    checkpoint_each_batch: bool = False,
     **kwargs: Any,
 ) -> list[dict[str, Any]]:
     """High-level convenience function: load GPX, enrich, write output GPX.
@@ -202,6 +239,8 @@ def enrich_gpx_file(
         profile_id: Profile identifier (e.g. ``"camping"``).
         profiles_dir: Optional override for the profiles directory.
         early_cancel_if_no_pois: Passed to :func:`enrich_track`; None means use the profile.
+        checkpoint_each_batch: If True, overwrite *output_path* after each Overpass batch with
+            all POIs collected so far (same format as the final file), so interruptions retain data.
         **kwargs: Forwarded to :func:`enrich_track`.
 
     Returns:
@@ -209,10 +248,24 @@ def enrich_gpx_file(
     """
     profile = load_profile(profile_id, profiles_dir)
     tree, root, track_points = parse_gpx_trackpoints(str(input_path))
+    outp = pathlib.Path(output_path)
+    if checkpoint_each_batch:
+        outp.parent.mkdir(parents=True, exist_ok=True)
+
+    def _checkpoint(items: list[dict[str, Any]]) -> None:
+        _write_waypoints_gpx_snapshot(
+            root,
+            items,
+            outp,
+            symbol=profile.symbol,
+            type_label=profile.description,
+        )
+
     items = enrich_track(
         track_points,
         profile,
         early_cancel_if_no_pois=early_cancel_if_no_pois,
+        on_batch_checkpoint=_checkpoint if checkpoint_each_batch else None,
         **kwargs,
     )
 
