@@ -6,6 +6,7 @@ defaults:
   sample_km: 7.0
   batch_size: 4
   retries: 3
+  early_cancel_if_no_pois: false
 tags: []
 terms:
   DE: ["Kindererlebnis", "Erlebniswelt", "Familienpark"]
