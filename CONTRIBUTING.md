@@ -30,6 +30,10 @@ The `[dev]` extra installs testing and linting dependencies (`pytest`, `ruff`, `
 ```
 
 This bootstraps hooks using `devmarkusb/pre-commit` in one-shot mode (without adding a submodule).
+It also installs a `commit-msg` hook that enforces [Conventional Commits](https://www.conventionalcommits.org/)
+once the dev environment exists so `pre-commit` is available.
+
+If you set up the venv after running the script, install the hook once: `pre-commit install --hook-type commit-msg`.
 
 ### 4. Run the test suite
 
@@ -81,8 +85,9 @@ expected `id` and `description` are present.
 - **pre-commit must pass** — run `pre-commit run --all-files` locally and fix all reported issues before pushing.
 - **One concern per PR**: keep PRs focused. If you want to fix a bug and add a
   feature, open two separate PRs.
-- **Commit messages**: use the imperative mood and keep the first line under
-  72 characters (e.g. `Add kids_activities profile`).
+- **Commit messages**: follow [Conventional Commits](https://www.conventionalcommits.org/)
+  (`feat:`, `fix:`, `docs:`, `chore:`, …), imperative mood, and keep the first line under 72 characters
+  (e.g. `feat: add kids_activities profile`).
 
 ---
 
