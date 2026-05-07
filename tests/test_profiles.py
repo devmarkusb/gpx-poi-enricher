@@ -102,6 +102,27 @@ def test_load_profile_camping_tag_structure(profiles_dir):
         assert "value" in tag
 
 
+def test_load_profile_mcdonalds_preserves_and_clause(profiles_dir):
+    """YAML ``and`` on a tag line must survive load (used by Overpass query builder)."""
+    profile = load_profile("mcdonalds", profiles_dir=profiles_dir)
+    amenity_tags = [t for t in profile.tags if t.get("key") == "amenity"]
+    assert len(amenity_tags) == 1
+    assert amenity_tags[0].get("and") == [{"key": "brand", "value": "McDonald's"}]
+
+
+def test_load_profile_outdoor_pool_swimming_pool_has_and_not(profiles_dir):
+    """Outdoor pool profile must exclude tagged private / no-access swimming pools."""
+    profile = load_profile("outdoor_pool", profiles_dir=profiles_dir)
+    pool_tags = [
+        t for t in profile.tags if t.get("key") == "leisure" and t.get("value") == "swimming_pool"
+    ]
+    assert len(pool_tags) == 1
+    assert pool_tags[0].get("and_not") == [
+        {"key": "access", "value": "private"},
+        {"key": "access", "value": "no"},
+    ]
+
+
 def test_load_profile_camping_terms_is_dict(profiles_dir):
     """profile.terms must be a dict mapping language codes to lists."""
     profile = load_profile("camping", profiles_dir=profiles_dir)

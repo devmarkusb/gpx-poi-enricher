@@ -274,6 +274,28 @@ def test_build_overpass_queries_and_tag_extra_condition():
     assert '"motorcar"="yes"' in query
 
 
+def test_build_overpass_queries_and_not_tag_extra_condition():
+    """Must emit Overpass inequality filters for each ``and_not`` subclause."""
+    profile = _make_profile(
+        tags=(
+            {
+                "key": "leisure",
+                "value": "swimming_pool",
+                "and_not": [
+                    {"key": "access", "value": "private"},
+                    {"key": "access", "value": "no"},
+                ],
+            },
+        ),
+        terms={},
+    )
+    pts = [(48.0, 11.0)]
+    query = build_overpass_queries(pts, max_km=5.0, profile=profile, country_code="EN")[0]
+    assert '"leisure"="swimming_pool"' in query
+    assert '"access"!="private"' in query
+    assert '"access"!="no"' in query
+
+
 def test_build_overpass_queries_ends_with_out_center_tags():
     """Every query must end with 'out center tags;'."""
     profile = _make_profile()

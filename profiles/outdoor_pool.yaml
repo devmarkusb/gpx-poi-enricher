@@ -9,6 +9,11 @@ defaults:
 tags:
   - key: leisure
     value: swimming_pool
+    and_not:
+      - key: access
+        value: private
+      - key: access
+        value: "no"
   - key: leisure
     value: water_park
   - key: amenity
