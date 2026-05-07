@@ -142,6 +142,7 @@ def enrich(
             output_path,
             profile_id,
             profiles_dir=pathlib.Path(profiles_dir),
+            checkpoint_each_batch=True,
             **kwargs,
         )
         return len(pois)
@@ -363,6 +364,7 @@ def easy_generate(
                 profiles_dir=pathlib.Path(profiles_dir),
                 early_cancel_if_no_pois=early_cancel,
                 cancel_event=_cancel_event,
+                checkpoint_each_batch=True,
                 progress_interval=5.0,
             )
             n = len(items)

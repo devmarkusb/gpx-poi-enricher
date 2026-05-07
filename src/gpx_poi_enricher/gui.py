@@ -264,6 +264,7 @@ class _EnricherWorker(QThread):
                 self._output,
                 self._profile_id,
                 cancel_event=self._cancel_event,
+                checkpoint_each_batch=True,
                 **self._kwargs,
             )
             capture.flush()
@@ -583,6 +584,7 @@ class _EasyWorker(QThread):
                     self._profile_id,
                     early_cancel_if_no_pois=early_cancel,
                     cancel_event=self._cancel_event,
+                    checkpoint_each_batch=True,
                     **enrich_kwargs,
                 )
                 poi_results.append((poi_path, len(items)))
