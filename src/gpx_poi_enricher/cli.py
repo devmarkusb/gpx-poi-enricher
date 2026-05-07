@@ -75,10 +75,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument(
         "--checkpoint-each-batch",
-        action="store_true",
+        dest="checkpoint_each_batch",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
             "After each Overpass batch, overwrite the output GPX with POIs found so far "
-            "(same file as the final result). Useful if the run may be interrupted."
+            "(same file as the final result), so partial results survive interruptions. "
+            "Enabled by default; pass --no-checkpoint-each-batch to disable."
         ),
     )
     return ap
