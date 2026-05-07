@@ -34,6 +34,11 @@ def _tag_condition(tag: dict[str, Any]) -> str:
         for item in extra if isinstance(extra, list) else [extra]:
             ek, ev = item["key"], item["value"]
             condition += f'["{ek}"]' if ev == "*" else f'["{ek}"="{ev}"]'
+    extra_not = tag.get("and_not")
+    if extra_not:
+        for item in extra_not if isinstance(extra_not, list) else [extra_not]:
+            ek, ev = item["key"], item["value"]
+            condition += f'["{ek}"!="{ev}"]'
     return condition
 
 

@@ -234,6 +234,22 @@ def _parse_profile(path: pathlib.Path) -> SearchProfile:
     return profile_from_mapping(data, path_hint=str(path))
 
 
+def _parse_tag_subclauses(
+    raw: Any, *, path_hint: str, tag_index: int, field: str
+) -> list[dict[str, str]]:
+    """Normalize ``and`` / ``and_not`` entries to a list of ``{key, value}`` mappings."""
+    items = raw if isinstance(raw, list) else [raw]
+    out: list[dict[str, str]] = []
+    for j, sub in enumerate(items):
+        if not isinstance(sub, dict) or "key" not in sub or "value" not in sub:
+            raise ValueError(
+                f"Profile ({path_hint}): tags[{tag_index}].{field}[{j}] "
+                "must be a mapping with key and value."
+            )
+        out.append({"key": str(sub["key"]), "value": str(sub["value"])})
+    return out
+
+
 def profile_from_mapping(data: Any, path_hint: str = "?") -> SearchProfile:
     """Build a :class:`SearchProfile` from a YAML/JSON-like mapping (mutating copies ok)."""
     if not isinstance(data, dict):
@@ -262,7 +278,16 @@ def profile_from_mapping(data: Any, path_hint: str = "?") -> SearchProfile:
             raise ValueError(f"Profile ({path_hint}): tags[{i}] must be a mapping with key/value.")
         if "key" not in item or "value" not in item:
             raise ValueError(f"Profile ({path_hint}): tags[{i}] must have key and value.")
-        tags_list.append({"key": str(item["key"]), "value": str(item["value"])})
+        tag_dict: dict[str, Any] = {"key": str(item["key"]), "value": str(item["value"])}
+        if "and" in item:
+            tag_dict["and"] = _parse_tag_subclauses(
+                item["and"], path_hint=path_hint, tag_index=i, field="and"
+            )
+        if "and_not" in item:
+            tag_dict["and_not"] = _parse_tag_subclauses(
+                item["and_not"], path_hint=path_hint, tag_index=i, field="and_not"
+            )
+        tags_list.append(tag_dict)
 
     terms_raw = data.get("terms") or {}
     if not isinstance(terms_raw, dict):
@@ -295,6 +320,18 @@ def profile_from_mapping(data: Any, path_hint: str = "?") -> SearchProfile:
     )
 
 
+def _tag_mapping_for_dump(tag: dict[str, Any]) -> dict[str, Any]:
+    """YAML/JSON-serializable tag line (key/value plus optional ``and`` / ``and_not``)."""
+    out: dict[str, Any] = {"key": tag["key"], "value": tag["value"]}
+    if "and" in tag:
+        raw = tag["and"]
+        out["and"] = [dict(x) for x in raw] if isinstance(raw, list) else dict(raw)
+    if "and_not" in tag:
+        raw = tag["and_not"]
+        out["and_not"] = [dict(x) for x in raw] if isinstance(raw, list) else dict(raw)
+    return out
+
+
 def profile_to_mapping(profile: SearchProfile) -> dict[str, Any]:
     """Serialize a profile to a YAML-compatible dict."""
     return {
@@ -309,7 +346,7 @@ def profile_to_mapping(profile: SearchProfile) -> dict[str, Any]:
             "early_cancel_if_no_pois": profile.early_cancel_if_no_pois,
             "early_cancel_after_batches": profile.early_cancel_after_batches,
         },
-        "tags": [dict(t) for t in profile.tags],
+        "tags": [_tag_mapping_for_dump(t) for t in profile.tags],
         "terms": {k: list(v) for k, v in profile.terms.items()},
         "must_match_terms": profile.must_match_terms,
     }
