@@ -112,6 +112,43 @@ consider caching responses locally rather than hammering the live endpoints.
 
 ---
 
+## Android builds and Google Play
+
+The **`Android Play release`** workflow (`.github/workflows/android-play.yml`) builds a signed **AAB**
+and **APK**, attaches them to the GitHub **Release** for `v*` tags, and optionally uploads to
+**Google Play** when `PLAY_SERVICE_ACCOUNT_JSON` is set. After **semantic-release** on **`main`**,
+the **Release** workflow dispatches this workflow on the new tag (same pattern as
+[gpx-link](https://github.com/devmarkusb/gpx-link)).
+
+**Secrets** (repository → Settings → Secrets and variables → Actions):
+
+| Secret | Purpose |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | Base64 of the upload keystore (`.jks` or `.p12`; avoid GitHub’s 48KB truncation) |
+| `ANDROID_KEYSTORE_PASSWORD` | Keystore password |
+| `ANDROID_KEY_ALIAS` | Signing key alias |
+| `ANDROID_KEY_PASSWORD` | Key password (for PKCS12, use the same value as the keystore password) |
+| `PLAY_SERVICE_ACCOUNT_JSON` | Full JSON of the Play Console API service account (omit to skip Play upload) |
+
+**Variable** (optional): `PLAY_RELEASE_STATUS` (e.g. `draft` while the Play listing is still a draft
+app; omit or use `completed` once allowed).
+
+**Store listing** lives under `android/fastlane/metadata/android/en-US/` (`title.txt`, descriptions,
+`whatsnew.txt`, images). **versionCode** comes from **`pyproject.toml`** `version = "…"` (same formula
+as `android/app/build.gradle.kts`). For **metadata-only** updates without a new binary, run the
+workflow manually with **Listing/screenshots only**.
+
+Regenerate listing bitmaps:
+
+```bash
+uv run --with pillow python scripts/generate_play_assets.py
+```
+
+Local Fastlane (from `android/`): `bundle install` then e.g. `bundle exec fastlane build_release`. Do
+not commit `keystore.properties`, keystores, or `play-console-service-account.json`.
+
+---
+
 ## Reporting Bugs
 
 Please open a [GitHub issue](https://github.com/devmarkusb/gpx-poi-enricher/issues) and include:

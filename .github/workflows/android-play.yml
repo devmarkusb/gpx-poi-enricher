@@ -1,0 +1,198 @@
+name: Android Play release
+
+# Builds a signed release AAB (Google Play default) and APK, attaches them to the GitHub
+# release for tag v*, and optionally uploads to Play Console when PLAY_SERVICE_ACCOUNT_JSON is set.
+#
+# Required GitHub secrets for signed builds (skipped when workflow_dispatch + metadata_only):
+#   ANDROID_KEYSTORE_BASE64   — base64 of the upload keystore .jks
+#   ANDROID_KEYSTORE_PASSWORD
+#   ANDROID_KEY_ALIAS
+#   ANDROID_KEY_PASSWORD
+# Optional (Play API upload):
+#   PLAY_SERVICE_ACCOUNT_JSON — full JSON body of the Play Console service account key
+# Optional repository variable (Settings → Secrets and variables → Actions → Variables):
+#   PLAY_RELEASE_STATUS — e.g. draft. Required while the Play listing is still a “draft app”
+#   (Google only allows draft releases until the first production rollout). Omit or use
+#   completed once the app is no longer in that state (Fastlane default is completed).
+#
+# Manual “Metadata only” run: workflow_dispatch with metadata_only=true skips the Gradle build and
+# runs Fastlane upload_play_metadata_only (listing + screenshots). Requires PLAY_SERVICE_ACCOUNT_JSON
+# only — no keystore. Does not upload an AAB, so no version bump is required.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      track:
+        description: Google Play track
+        required: true
+        default: internal
+        type: choice
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+      upload_store_listing:
+        description: With a normal release run — also push fastlane metadata (requires built AAB)
+        required: false
+        default: false
+        type: boolean
+      metadata_only:
+        description: Listing/screenshots only — no build, no AAB (no version bump needed)
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      PLAY_TRACK: ${{ inputs.track || 'internal' }}
+      PLAY_RELEASE_STATUS: ${{ vars.PLAY_RELEASE_STATUS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.metadata_only) }}
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Decode upload keystore
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.metadata_only) }}
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "Missing secret ANDROID_KEYSTORE_BASE64"
+            exit 1
+          fi
+          # Robust decode: strip whitespace (wrapped macOS/base64 lines), avoid echo mangling huge values
+          python3 -c "
+          import os, base64, pathlib
+          s = ''.join(os.environ['ANDROID_KEYSTORE_BASE64'].split())
+          pathlib.Path('upload-keystore.jks').write_bytes(base64.b64decode(s, validate=False))
+          "
+          # JKS magic: fe ed fe ed. PKCS#12 / .p12 usually starts with DER SEQUENCE 30 82.
+          head_bytes=$(head -c 4 upload-keystore.jks | xxd -p | tr -d '\n')
+          head_two=$(head -c 2 upload-keystore.jks | xxd -p | tr -d '\n')
+          if [ "$head_bytes" != "feedfeed" ] && [ "$head_two" != "3082" ]; then
+            echo "::error::Decoded file does not look like JKS or PKCS12 (first bytes=$head_bytes). Re-create ANDROID_KEYSTORE_BASE64 (Linux: base64 -w0 file.jks; macOS: base64 -i file.jks | tr -d '\\n'). GitHub secrets max 48KB — truncation corrupts the file."
+            exit 1
+          fi
+
+      - name: Write keystore.properties
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.metadata_only) }}
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          for name in ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            eval "v=\${$name}"
+            if [ -z "$v" ]; then echo "Missing secret $name"; exit 1; fi
+          done
+          # Strip CR from pasted secrets (Windows line endings break passwords).
+          STORE_PW=$(printf '%s' "$ANDROID_KEYSTORE_PASSWORD" | tr -d '\r')
+          KEY_PW=$(printf '%s' "$ANDROID_KEY_PASSWORD" | tr -d '\r')
+          ALIAS=$(printf '%s' "$ANDROID_KEY_ALIAS" | tr -d '\r')
+          # PKCS12 (.p12 or .jks with DER header 30 82): one password only; keytool ignores a
+          # different -keypass but Gradle can still fail if keyPassword ≠ storePassword here.
+          head_two=$(head -c 2 upload-keystore.jks | xxd -p | tr -d '\n')
+          if [ "$head_two" = "3082" ]; then
+            if [ "$KEY_PW" != "$STORE_PW" ]; then
+              echo "::notice::PKCS12 keystore: keyPassword must equal storePassword; using ANDROID_KEYSTORE_PASSWORD for both."
+            fi
+            KEY_PW="$STORE_PW"
+          fi
+          {
+            echo "storeFile=upload-keystore.jks"
+            echo "storePassword=$STORE_PW"
+            echo "keyAlias=$ALIAS"
+            echo "keyPassword=$KEY_PW"
+          } > keystore.properties
+
+      - name: Verify keystore (keytool)
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.metadata_only) }}
+        working-directory: android
+        env:
+          STORE_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PW: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          STORE_PW=$(printf '%s' "$STORE_PW" | tr -d '\r')
+          KEY_ALIAS=$(printf '%s' "$KEY_ALIAS" | tr -d '\r')
+          KEY_PW=$(printf '%s' "$KEY_PW" | tr -d '\r')
+          head_two=$(head -c 2 upload-keystore.jks | xxd -p | tr -d '\n')
+          if [ "$head_two" = "3082" ]; then
+            KEY_PW="$STORE_PW"
+          fi
+          # JKS: wrong keyPassword fails here. PKCS12: only store password matters (keypass ignored by keytool).
+          if ! keytool -list -keystore upload-keystore.jks -storepass "$STORE_PW" -keypass "$KEY_PW" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
+            echo "::error::keytool could not read the keystore or private key. Check ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEYSTORE_BASE64 (exact .jks; GitHub secret max 48KB — truncation corrupts the file)."
+            keytool -list -keystore upload-keystore.jks -storepass "$STORE_PW" -keypass "$KEY_PW" 2>&1 || true
+            exit 1
+          fi
+
+      - name: Gradle release bundle + APK
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.metadata_only) }}
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon bundleRelease assembleRelease
+
+      - name: Upload build artifacts
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.metadata_only) }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: gpx-poi-enricher-android-release
+          path: |
+            android/app/build/outputs/bundle/release/*.aab
+            android/app/build/outputs/apk/release/*.apk
+
+      - name: Attach AAB and APK to GitHub Release (tag builds only)
+        if: ${{ github.ref_type == 'tag' && !(github.event_name == 'workflow_dispatch' && inputs.metadata_only) }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eux
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release upload "$TAG" \
+            android/app/build/outputs/bundle/release/app-release.aab \
+            android/app/build/outputs/apk/release/app-release.apk \
+            --clobber
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler: "2.5.23"
+          bundler-cache: true
+          working-directory: android
+
+      - name: Upload to Google Play
+        working-directory: android
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -z "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
+            echo "PLAY_SERVICE_ACCOUNT_JSON not set; skipping Play upload."
+            exit 0
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.metadata_only }}" = "true" ]; then
+            bundle exec fastlane upload_play_metadata_only "track:$PLAY_TRACK"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.upload_store_listing }}" = "true" ]; then
+            bundle exec fastlane upload_play_with_metadata "track:$PLAY_TRACK"
+          else
+            bundle exec fastlane upload_play "track:$PLAY_TRACK"
+          fi

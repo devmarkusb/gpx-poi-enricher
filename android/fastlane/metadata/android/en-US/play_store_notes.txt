@@ -1,0 +1,31 @@
+Branding (Play title max 30 characters)
+--------------------------------------
+Current listing title: GPX POI Enricher
+
+Regenerate bitmaps
+------------------
+From repo root:
+  uv run --with pillow python scripts/generate_play_assets.py
+
+Outputs (Fastlane default paths):
+  images/icon.png                 — 512 x 512
+  images/featureGraphic.png       — 1024 x 500
+  images/phoneScreenshots/*.png   — 1080 x 1920 placeholders
+  images/sevenInchScreenshots/    — first phone shot copied (Play tablet 7" slot)
+  images/tenInchScreenshots/      — first phone shot copied (Play tablet 10" slot)
+
+Replace phone screenshots with real device captures when you can; Play reviewers prefer authentic UI.
+
+GitHub Actions / Play upload
+----------------------------
+See `.github/workflows/android-play.yml` header comments for required secrets:
+  ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+Optional: PLAY_SERVICE_ACCOUNT_JSON, repo variable PLAY_RELEASE_STATUS (e.g. draft for new apps).
+
+Still needed in Play Console (not in this folder)
+-------------------------------------------------
+  • Privacy policy URL (if required for your data declarations)
+  • Content rating questionnaire
+  • Target audience / news apps declarations as applicable
+  • Data safety form (aligned with network use)
+  • Optional: promo video YouTube URL

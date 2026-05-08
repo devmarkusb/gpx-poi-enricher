@@ -34,6 +34,7 @@ repos:
     rev: v2.4.2
     hooks:
       - id: codespell
+        exclude: ^android/Gemfile\.lock$
 
     # Python linting and formatting
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -47,6 +48,8 @@ repos:
     hooks:
       - id: pyupgrade
         args: [--py310-plus]
+        # pyupgrade 3.9 + CPython 3.14 can raise TypeError in tokenizer; pin hook interpreter.
+        language_version: python3.13
 
     # CMake linting and formatting
   - repo: https://github.com/BlankSpruce/gersemi
