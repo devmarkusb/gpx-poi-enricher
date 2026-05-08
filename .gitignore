@@ -41,3 +41,15 @@ Thumbs.db
 
 # Claude Code
 .claude/
+
+# Android / Google Play (local signing & API keys — never commit)
+/android/local.properties
+/android/keystore.properties
+/android/upload-keystore.jks
+/android/*.jks
+/android/play-console-service-account.json
+/android/vendor/
+/android/.bundle/
+
+# Play “What’s new”: generated from locale whatsnew.txt before fastlane upload (see android/fastlane/Fastfile).
+/android/fastlane/metadata/android/*/changelogs/[0-9]*.txt

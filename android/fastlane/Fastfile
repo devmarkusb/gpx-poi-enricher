@@ -1,0 +1,206 @@
+# frozen_string_literal: true
+
+require "fileutils"
+
+default_platform(:android)
+
+# Directory containing gradlew (parent of fastlane/).
+ANDROID_DIR = File.expand_path("..", __dir__).freeze
+
+def play_metadata_android_dir
+  File.join(ANDROID_DIR, "fastlane", "metadata", "android")
+end
+
+# Same formula as android/app/build.gradle.kts readVersionFromPyproject → Play versionCode.
+def read_play_version_code_from_pyproject
+  path = File.expand_path(File.join(ANDROID_DIR, "..", "pyproject.toml"))
+  return nil unless File.exist?(path)
+
+  text = File.read(path)
+  m = /(?m)^version\s*=\s*"([^"]+)"/.match(text)
+  return nil unless m
+
+  raw = m[1]
+  semver_core = raw.split("+", 2).first.split("-", 2).first.strip
+  parts = semver_core.split(".").map { |s| s.to_i }
+  major = parts[0] || 0
+  minor = parts[1] || 0
+  patch = parts[2] || 0
+  code = major * 1_000_000 + minor * 1_000 + patch
+  return nil unless code >= 1 && code <= 2_147_483_647
+
+  code
+end
+
+# Fallback when pyproject is missing (e.g. odd checkout).
+def infer_play_version_code_from_changelogs
+  root = play_metadata_android_dir
+  return nil unless Dir.exist?(root)
+
+  Dir.glob(File.join(root, "*", "changelogs", "*.txt")).filter_map do |path|
+    Integer(File.basename(path, ".txt"), 10, exception: false)
+  end.max
+end
+
+def resolve_play_version_code(options)
+  raw = options[:version_code] || ENV["PLAY_VERSION_CODE"]
+  if raw && !raw.to_s.strip.empty?
+    Integer(raw.to_s.strip, 10)
+  else
+    read_play_version_code_from_pyproject || infer_play_version_code_from_changelogs
+  end
+end
+
+# Edit fastlane/metadata/android/<locale>/whatsnew.txt only; numbered changelogs are generated.
+def sync_play_whatsnew_to_changelogs!(version_code)
+  return if version_code.nil?
+
+  root = play_metadata_android_dir
+  Dir.glob(File.join(root, "*")).each do |locale_dir|
+    next unless File.directory?(locale_dir)
+
+    source = File.join(locale_dir, "whatsnew.txt")
+    next unless File.exist?(source)
+
+    body = File.read(source).strip
+    next if body.empty?
+
+    cd = File.join(locale_dir, "changelogs")
+    FileUtils.mkdir_p(cd)
+    target = File.join(cd, "#{version_code}.txt")
+    File.write(target, body.end_with?("\n") ? body : "#{body}\n")
+
+    Dir.glob(File.join(cd, "*.txt")).each do |p|
+      bn = File.basename(p, ".txt")
+      next if bn == version_code.to_s
+      next unless Integer(bn, 10, exception: false)
+
+      File.delete(p)
+    end
+  end
+end
+
+def play_numeric_changelog_paths(metadata_path)
+  Dir.glob(File.join(metadata_path, "*", "changelogs", "*.txt")).select do |p|
+    Integer(File.basename(p, ".txt"), 10, exception: false)
+  end
+end
+
+platform :android do
+  lane :build_release do
+    gradle(
+      task: "bundleRelease assembleRelease",
+      project_dir: ANDROID_DIR,
+    )
+  end
+
+  # Upload the release AAB. Requires PLAY_SERVICE_ACCOUNT_JSON and prior Play Console setup.
+  # track: internal | alpha | beta | production
+  lane :upload_play do |options|
+    track = (options[:track] || ENV["PLAY_TRACK"] || "internal").to_s
+    json = ENV["PLAY_SERVICE_ACCOUNT_JSON"]
+    json_path = File.join(ANDROID_DIR, "play-console-service-account.json")
+    if json && !json.empty?
+      File.write(json_path, json)
+    elsif File.exist?(json_path)
+      # local run with file already present
+    else
+      UI.user_error!("Set PLAY_SERVICE_ACCOUNT_JSON or place play-console-service-account.json in android/")
+    end
+
+    aab = File.join(ANDROID_DIR, "app/build/outputs/bundle/release/app-release.aab")
+    UI.user_error!("Missing AAB at #{aab}; run build_release first") unless File.exist?(aab)
+
+    rs = ENV["PLAY_RELEASE_STATUS"]&.strip
+    upload_to_play_store(
+      track: track,
+      json_key: json_path,
+      aab: aab,
+      skip_upload_apk: true,
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      **(rs && !rs.empty? ? { release_status: rs } : {}),
+    )
+  end
+
+  lane :upload_play_with_metadata do |options|
+    track = (options[:track] || ENV["PLAY_TRACK"] || "internal").to_s
+    json = ENV["PLAY_SERVICE_ACCOUNT_JSON"]
+    json_path = File.join(ANDROID_DIR, "play-console-service-account.json")
+    if json && !json.empty?
+      File.write(json_path, json)
+    elsif File.exist?(json_path)
+    else
+      UI.user_error!("Set PLAY_SERVICE_ACCOUNT_JSON or place play-console-service-account.json in android/")
+    end
+
+    aab = File.join(ANDROID_DIR, "app/build/outputs/bundle/release/app-release.aab")
+    UI.user_error!("Missing AAB at #{aab}; run build_release first") unless File.exist?(aab)
+
+    metadata_path = File.join(ANDROID_DIR, "fastlane", "metadata", "android")
+    version_code = resolve_play_version_code(options)
+    UI.user_error!(
+      "Could not determine Android versionCode (check repo-root pyproject.toml `version = \"…\"`, " \
+      "or pass version_code: / set PLAY_VERSION_CODE).",
+    ) if version_code.nil?
+
+    sync_play_whatsnew_to_changelogs!(version_code)
+    has_changelogs = !play_numeric_changelog_paths(metadata_path).empty?
+
+    rs = ENV["PLAY_RELEASE_STATUS"]&.strip
+    upload_to_play_store(
+      track: track,
+      json_key: json_path,
+      aab: aab,
+      skip_upload_apk: true,
+      metadata_path: metadata_path,
+      skip_upload_changelogs: !has_changelogs,
+      **(rs && !rs.empty? ? { release_status: rs } : {}),
+    )
+  end
+
+  # Listing text, graphics, screenshots, changelogs — no AAB/APK. Same Play track as binary uploads.
+  # Use when the store listing changed but versionCode did not (avoids duplicate-version rejection).
+  # “What’s new”: edit fastlane/metadata/android/<locale>/whatsnew.txt; numbered changelogs are synced
+  # from pyproject.toml before upload. Override with version_code: or PLAY_VERSION_CODE if needed.
+  lane :upload_play_metadata_only do |options|
+    track = (options[:track] || ENV["PLAY_TRACK"] || "internal").to_s
+    json = ENV["PLAY_SERVICE_ACCOUNT_JSON"]
+    json_path = File.join(ANDROID_DIR, "play-console-service-account.json")
+    if json && !json.empty?
+      File.write(json_path, json)
+    elsif File.exist?(json_path)
+    else
+      UI.user_error!("Set PLAY_SERVICE_ACCOUNT_JSON or place play-console-service-account.json in android/")
+    end
+
+    metadata_path = play_metadata_android_dir
+    version_code = resolve_play_version_code(options)
+    if version_code.nil?
+      UI.user_error!(
+        "Could not determine Android versionCode (check repo-root pyproject.toml `version = \"…\"`, " \
+        "or pass version_code: / set PLAY_VERSION_CODE).",
+      )
+    end
+
+    sync_play_whatsnew_to_changelogs!(version_code)
+    has_changelogs = !play_numeric_changelog_paths(metadata_path).empty?
+
+    rs = ENV["PLAY_RELEASE_STATUS"]&.strip
+    changelog_opts = {}
+    changelog_opts[:version_code] = version_code if has_changelogs
+
+    upload_to_play_store(
+      track: track,
+      json_key: json_path,
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      metadata_path: metadata_path,
+      skip_upload_changelogs: !has_changelogs,
+      **changelog_opts,
+      **(rs && !rs.empty? ? { release_status: rs } : {}),
+    )
+  end
+end

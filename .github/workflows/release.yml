@@ -16,6 +16,7 @@ jobs:
       contents: write
     outputs:
       released: ${{ steps.sr.outputs.released }}
+      release_tag: ${{ steps.release_tag.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -39,6 +40,38 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: uv run python -m semantic_release version
+
+      # Pushes made with GITHUB_TOKEN do not fire other workflows' `on: push` (e.g. tag pushes).
+      # Resolve the new tag here and dispatch Android Play explicitly (below).
+      - name: Resolve release tag
+        id: release_tag
+        if: steps.sr.outputs.released == 'true'
+        run: |
+          git fetch origin --tags
+          tag=$(git tag --points-at HEAD | grep -E '^v[0-9]' | sort -V | tail -1)
+          if [ -z "$tag" ]; then
+            echo "::error::No v* tag on HEAD after semantic-release"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  android-play:
+    name: Trigger Android Play release
+    needs: version
+    if: needs.version.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch Android Play workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run android-play.yml \
+            --repo "${{ github.repository }}" \
+            --ref "${{ needs.version.outputs.release_tag }}" \
+            -f track=internal \
+            -f upload_store_listing=false
 
   publish:
     name: Publish to PyPI
