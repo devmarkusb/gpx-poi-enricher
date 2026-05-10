@@ -67,7 +67,7 @@ class ProfilesFragment : Fragment() {
                 }
             }
 
-            override fun onNothingSelected() = Unit
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
 
         viewModel.profiles.observe(viewLifecycleOwner) { list ->
