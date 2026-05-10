@@ -1,13 +1,19 @@
 package com.gpxpoienricher.ui.easy
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import com.google.android.material.snackbar.Snackbar
+import com.gpxpoienricher.R
 import com.gpxpoienricher.data.GuiStatePreferences
 import com.gpxpoienricher.databinding.FragmentEasyBinding
 
@@ -18,6 +24,19 @@ class EasyFragment : Fragment() {
     private val vm: EasyViewModel by viewModels()
 
     private var profileFromPrefsApplied = false
+
+    private var pendingGenerate: (() -> Unit)? = null
+
+    private val requestWritePermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            pendingGenerate?.invoke()
+        } else {
+            Snackbar.make(binding.root, R.string.msg_storage_permission_denied, Snackbar.LENGTH_LONG).show()
+        }
+        pendingGenerate = null
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -121,7 +140,34 @@ class EasyFragment : Fragment() {
             val url = binding.editUrl.text?.toString() ?: ""
             val extras = binding.editExtraUrls.text?.toString() ?: ""
             val parts = binding.editMilestoneParts.text?.toString()?.trim()?.toIntOrNull()?.coerceIn(0, 9999) ?: 0
-            vm.generate(url, extras, binding.spinnerProfile.selectedItemPosition, parts)
+            val profileIx = binding.spinnerProfile.selectedItemPosition
+            val run = {
+                val legacyOk = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ||
+                    ContextCompat.checkSelfPermission(
+                        requireContext(),
+                        Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                    ) == PackageManager.PERMISSION_GRANTED
+                vm.generate(url, extras, profileIx, parts, legacyStorageGranted = legacyOk)
+            }
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+                ContextCompat.checkSelfPermission(
+                    requireContext(),
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                pendingGenerate = run
+                if (shouldShowRequestPermissionRationale(Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
+                    Snackbar.make(binding.root, R.string.msg_storage_permission_for_downloads, Snackbar.LENGTH_LONG)
+                        .setAction(android.R.string.ok) {
+                            requestWritePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                        }
+                        .show()
+                } else {
+                    requestWritePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                }
+            } else {
+                run()
+            }
         }
 
         binding.btnCancel.setOnClickListener { vm.cancel() }

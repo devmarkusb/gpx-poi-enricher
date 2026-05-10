@@ -33,6 +33,9 @@
     <string name="label_alternate_full_gpx">Alternate full-route GPX</string>
     <string name="label_detour_poi_outputs">Detour segment POIs</string>
     <string name="label_milestone_only_gpx">Milestone-only GPX (no track)</string>
+    <string name="snackbar_export_downloads_failed">Could not copy GPX files to Downloads. Paths below point to the app folder.</string>
+    <string name="msg_storage_permission_for_downloads">Allow access to storage so GPX files can be saved to your Downloads folder (GpxPoiEnricher).</string>
+    <string name="msg_storage_permission_denied">Without storage permission, GPX files stay in a hidden app folder. You can allow access in Settings and run again.</string>
 
     <!-- Buttons -->
     <string name="btn_browse">Browse…</string>
