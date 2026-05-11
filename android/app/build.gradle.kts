@@ -33,13 +33,13 @@ val keystorePropertiesFile = rootProject.file("keystore.properties")
 
 android {
     namespace = "com.gpxpoienricher"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         // Play Store application id (Kotlin sources remain under `namespace` above).
         applicationId = "org.cismypa.gpxpoienricher"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 35
         versionCode = playVersionCode
         versionName = playVersionName
 
