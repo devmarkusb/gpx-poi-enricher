@@ -3,12 +3,21 @@ package com.gpxpoienricher
 import android.app.Application
 import com.chaquo.python.android.AndroidPlatform
 import com.chaquo.python.Python
+import com.google.android.gms.ads.MobileAds
+import com.gpxpoienricher.monetization.PlayStoreMonetization
 import java.io.File
 
 class GpxApp : Application() {
 
+    lateinit var monetization: PlayStoreMonetization
+        private set
+
     override fun onCreate() {
         super.onCreate()
+        monetization = PlayStoreMonetization(this)
+        monetization.start()
+        MobileAds.initialize(this) {}
+
         if (!Python.isStarted()) {
             Python.start(AndroidPlatform(this))
         }

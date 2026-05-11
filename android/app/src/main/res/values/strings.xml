@@ -61,4 +61,14 @@
     <string name="btn_import_yaml">Import YAML</string>
     <string name="btn_export_yaml">Export YAML</string>
     <string name="btn_delete_user_profile">Delete user copy</string>
+
+    <!-- Play / ads (override AdMob IDs via android/local.properties — see app build.gradle.kts) -->
+    <string name="menu_remove_ads">Remove ads…</string>
+    <string name="menu_restore_purchases">Restore purchases</string>
+    <string name="msg_restore_purchases_done">Purchase status refreshed.</string>
+    <string name="billing_error_generic">Something went wrong with the payment. Try again later.</string>
+    <string name="billing_pending">Payment is pending. Ads may disappear once it completes.</string>
+    <string name="billing_ack_failed">Purchase could not be confirmed. Try Restore purchases or contact support.</string>
+    <string name="billing_store_not_ready">Store not ready yet — try again in a moment.</string>
+    <string name="billing_could_not_open_payment">Could not open the payment sheet.</string>
 </resources>
