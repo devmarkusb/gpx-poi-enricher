@@ -27,9 +27,31 @@ fun readVersionFromPyproject(pyproject: java.io.File): Pair<Int, String> {
 }
 
 val repoRoot = rootProject.projectDir.parentFile
+
+fun loadOptionalLocalProperty(key: String): String? {
+    val candidates = listOf(
+        rootProject.file("local.properties"),
+        repoRoot.resolve("local.properties"),
+    )
+    val f = candidates.firstOrNull { it.exists() } ?: return null
+    return f.inputStream().use { stream ->
+        Properties().apply { load(stream) }.getProperty(key)?.trim()?.takeIf { it.isNotEmpty() }
+    }
+}
+
 val pyprojectToml = repoRoot.resolve("pyproject.toml")
 val (playVersionCode, playVersionName) = readVersionFromPyproject(pyprojectToml)
 val keystorePropertiesFile = rootProject.file("keystore.properties")
+
+// AdMob / Play Billing overrides (optional keys in android/local.properties or repo-root local.properties):
+//   admobAppId=ca-app-pub-XXXX~YYYY
+//   admobBannerAdUnitId=ca-app-pub-XXXX/ZZZZ
+//   removeAdsInappProductId=remove_ads
+val admobAppId = loadOptionalLocalProperty("admobAppId")
+    ?: "ca-app-pub-3940256099942544~3347511713"
+val admobBannerUnitId = loadOptionalLocalProperty("admobBannerAdUnitId")
+    ?: "ca-app-pub-3940256099942544/6300978111"
+val removeAdsProductId = loadOptionalLocalProperty("removeAdsInappProductId") ?: "remove_ads"
 
 android {
     namespace = "com.gpxpoienricher"
@@ -42,6 +64,10 @@ android {
         targetSdk = 35
         versionCode = playVersionCode
         versionName = playVersionName
+
+        manifestPlaceholders["admobAppId"] = admobAppId
+        resValue("string", "admob_banner_ad_unit_id", admobBannerUnitId)
+        buildConfigField("String", "REMOVE_ADS_INAPP_PRODUCT_ID", "\"$removeAdsProductId\"")
 
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
@@ -83,6 +109,7 @@ android {
     }
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
 
     packaging {
@@ -139,4 +166,7 @@ dependencies {
     implementation(libs.navigation.fragment.ktx)
     implementation(libs.navigation.ui.ktx)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.play.billing.ktx)
+    implementation(libs.play.services.ads)
+    implementation(libs.user.messaging.platform)
 }
