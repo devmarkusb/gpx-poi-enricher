@@ -36,7 +36,8 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.gpxpoienricher"
+        // Play Store application id (Kotlin sources remain under `namespace` above).
+        applicationId = "org.cismypa.gpxpoienricher"
         minSdk = 26
         targetSdk = 34
         versionCode = playVersionCode
