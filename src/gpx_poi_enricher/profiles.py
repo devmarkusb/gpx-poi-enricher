@@ -54,6 +54,7 @@ def template_profile() -> SearchProfile:
         early_cancel_if_no_pois=True,
         early_cancel_after_batches=3,
         must_match_terms=False,
+        require_distinct_name=False,
     )
 
 
@@ -71,6 +72,7 @@ class SearchProfile:
     early_cancel_if_no_pois: bool = True
     early_cancel_after_batches: int = 3
     must_match_terms: bool = False
+    require_distinct_name: bool = False
 
     def terms_for_country(self, country_code: str) -> list[str]:
         """Return deduplicated search terms for *country_code* + universal EN terms."""
@@ -317,6 +319,7 @@ def profile_from_mapping(data: Any, path_hint: str = "?") -> SearchProfile:
         early_cancel_if_no_pois=early_cancel,
         early_cancel_after_batches=early_after,
         must_match_terms=bool(data.get("must_match_terms", False)),
+        require_distinct_name=bool(data.get("require_distinct_name", False)),
     )
 
 
@@ -349,6 +352,7 @@ def profile_to_mapping(profile: SearchProfile) -> dict[str, Any]:
         "tags": [_tag_mapping_for_dump(t) for t in profile.tags],
         "terms": {k: list(v) for k, v in profile.terms.items()},
         "must_match_terms": profile.must_match_terms,
+        "require_distinct_name": profile.require_distinct_name,
     }
 
 

@@ -104,6 +104,11 @@ class _ProfileEditorDialog(QDialog):
         self._must_match = QCheckBox("Require OSM tags AND matching name text (stricter)")
         self._must_match.setChecked(profile.must_match_terms)
 
+        self._require_name = QCheckBox(
+            "Skip POIs with no name / operator (no generic label fallback)"
+        )
+        self._require_name.setChecked(profile.require_distinct_name)
+
         fg.addRow("Id:", self._id_edit)
         fg.addRow("Description:", self._desc_edit)
         fg.addRow("GPX symbol:", self._symbol_edit)
@@ -114,6 +119,7 @@ class _ProfileEditorDialog(QDialog):
         fg.addRow("", self._early_cancel)
         fg.addRow("early_cancel_after_batches:", self._early_after)
         fg.addRow("", self._must_match)
+        fg.addRow("", self._require_name)
 
         tags_box = QGroupBox("OSM tags (key / value — e.g. tourism / camp_site)")
         tags_outer = QVBoxLayout(tags_box)
@@ -246,6 +252,7 @@ class _ProfileEditorDialog(QDialog):
             "tags": tags,
             "terms": terms,
             "must_match_terms": self._must_match.isChecked(),
+            "require_distinct_name": self._require_name.isChecked(),
         }
         return profile_from_mapping(data, path_hint="form")
 

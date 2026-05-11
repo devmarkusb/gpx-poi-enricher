@@ -59,6 +59,21 @@ def test_load_profile_attractions_family_disables_early_cancel(profiles_dir):
     assert profile.early_cancel_if_no_pois is False
 
 
+def test_load_profile_attractions_family_tags_and_terms_and_combined(profiles_dir):
+    """attractions_family ANDs theme_park / water_park tags with family keyword regex (must_match_terms)."""
+    profile = load_profile("attractions_family", profiles_dir=profiles_dir)
+    assert profile.must_match_terms is True
+    assert profile.terms_for_country("DE")
+    assert len(profile.tags) == 2
+
+
+def test_load_profile_kids_activities_has_tag_and_term_queries(profiles_dir):
+    """kids_activities combines leisure/tourism tags with name/alt_name term queries."""
+    profile = load_profile("kids_activities", profiles_dir=profiles_dir)
+    assert len(profile.tags) >= 1
+    assert profile.terms_for_country("DE")
+
+
 def test_load_profile_invalid_early_cancel_after_batches_raises(tmp_path):
     """early_cancel_after_batches < 1 with early cancel on must raise ValueError."""
     profile_data = {
@@ -108,6 +123,12 @@ def test_load_profile_mcdonalds_preserves_and_clause(profiles_dir):
     amenity_tags = [t for t in profile.tags if t.get("key") == "amenity"]
     assert len(amenity_tags) == 1
     assert amenity_tags[0].get("and") == [{"key": "brand", "value": "McDonald's"}]
+
+
+def test_load_profile_outdoor_pool_require_distinct_name(profiles_dir):
+    """Outdoor pool profile drops unnamed tag-only hits (no generic GPX label)."""
+    profile = load_profile("outdoor_pool", profiles_dir=profiles_dir)
+    assert profile.require_distinct_name is True
 
 
 def test_load_profile_outdoor_pool_swimming_pool_has_and_not(profiles_dir):
@@ -232,6 +253,8 @@ def _make_profile(**kwargs) -> SearchProfile:
         sample_km=20.0,
         batch_size=4,
         retries=2,
+        must_match_terms=False,
+        require_distinct_name=False,
     )
     defaults.update(kwargs)
     return SearchProfile(**defaults)

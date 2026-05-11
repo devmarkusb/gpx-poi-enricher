@@ -79,6 +79,7 @@ def _collect_term_lines(
         ]
         for sel in selectors:
             lines.append(f'{sel}["name"~"{regex}", i];')
+            lines.append(f'{sel}["alt_name"~"{regex}", i];')
             lines.append(f'{sel}["description"~"{regex}", i];')
             lines.append(f'{sel}["operator"~"{regex}", i];')
     return lines
@@ -106,6 +107,7 @@ def _collect_tag_and_term_lines(
             for tag in profile.tags:
                 cond = _tag_condition(tag)
                 lines.append(f'{sel}{cond}["name"~"{regex}", i];')
+                lines.append(f'{sel}{cond}["alt_name"~"{regex}", i];')
                 lines.append(f'{sel}{cond}["description"~"{regex}", i];')
                 lines.append(f'{sel}{cond}["operator"~"{regex}", i];')
     return lines
@@ -278,12 +280,23 @@ def element_latlon(el: dict[str, Any]) -> tuple[float | None, float | None]:
     return None, None
 
 
+_NAME_TAG_PRIORITY = ("name", "official_name", "alt_name", "short_name", "brand", "operator")
+
+
 def _choose_name(tags: dict[str, str], profile: SearchProfile) -> str:
-    for key in ("name", "official_name", "short_name", "brand", "operator"):
+    for key in _NAME_TAG_PRIORITY:
         val = tags.get(key, "").strip()
         if val:
             return val
     return profile.description
+
+
+def _tags_have_distinct_display_name(tags: dict[str, str]) -> bool:
+    """True if any tag used for GPX naming is non-empty (avoids profile-description fallback)."""
+    for key in _NAME_TAG_PRIORITY:
+        if tags.get(key, "").strip():
+            return True
+    return False
 
 
 def _choose_kind(tags: dict[str, str], profile: SearchProfile) -> str:
@@ -316,6 +329,9 @@ def extract_candidates(
             continue
 
         tags = el.get("tags", {})
+        if profile.require_distinct_name and not _tags_have_distinct_display_name(tags):
+            continue
+
         d = min_distance_to_track_km(lat, lon, track_points)
         if d > max_km:
             continue

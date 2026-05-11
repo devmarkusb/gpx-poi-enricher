@@ -1,6 +1,7 @@
 id: outdoor_pool
 description: "Outdoor Pool, Adventure Pool, Thermal Bath"
 symbol: Swimming Area
+require_distinct_name: true
 defaults:
   max_km: 2.0
   sample_km: 15.0

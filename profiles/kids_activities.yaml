@@ -7,9 +7,20 @@ defaults:
   batch_size: 4
   retries: 3
   early_cancel_if_no_pois: false
-tags: []
+tags:
+  - key: leisure
+    value: trampoline_park
+  - key: tourism
+    value: theme_park
 terms:
-  DE: ["Kindererlebnis", "Erlebniswelt", "Familienpark"]
-  FR: ["parc de loisirs", "activité enfant", "parc familial"]
-  ES: ["parque de ocio", "actividad infantil", "parque familiar"]
-  EN: ["kids attraction", "children activity"]
+  DE:
+    - Trampolinpark
+    - Softplay
+    - Spielparadies
+  FR:
+    - trampoline
+  ES:
+    - camas elásticas
+  EN:
+    - trampoline park
+    - soft play
