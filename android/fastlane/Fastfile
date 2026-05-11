@@ -165,6 +165,10 @@ platform :android do
   # Use when the store listing changed but versionCode did not (avoids duplicate-version rejection).
   # “What’s new”: edit fastlane/metadata/android/<locale>/whatsnew.txt; numbered changelogs are synced
   # from pyproject.toml before upload. Override with version_code: or PLAY_VERSION_CODE if needed.
+  #
+  # If Play Console shows the app as unpublished / draft: set PLAY_RELEASE_STATUS=draft (or Supply
+  # defaults to completed and Google returns “Only releases with status draft may be created on draft app”).
+  # After the first production release, omit it or use completed as appropriate for your track.
   lane :upload_play_metadata_only do |options|
     track = (options[:track] || ENV["PLAY_TRACK"] || "internal").to_s
     json = ENV["PLAY_SERVICE_ACCOUNT_JSON"]
