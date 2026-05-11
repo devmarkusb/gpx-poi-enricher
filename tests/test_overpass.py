@@ -31,6 +31,7 @@ def _make_profile(
     batch_size: int = 4,
     retries: int = 2,
     must_match_terms: bool = False,
+    require_distinct_name: bool = False,
 ) -> SearchProfile:
     """Build a minimal SearchProfile for overpass tests."""
     if terms is None:
@@ -46,6 +47,7 @@ def _make_profile(
         batch_size=batch_size,
         retries=retries,
         must_match_terms=must_match_terms,
+        require_distinct_name=require_distinct_name,
     )
 
 
@@ -146,6 +148,7 @@ def test_build_overpass_query_tags_and_terms_single_query_when_must_match():
     assert '"tourism"="camp_site"' in q
     assert "Campingplatz" in q and "campsite" in q
     assert '["tourism"="camp_site"]["name"~"' in q
+    assert '["tourism"="camp_site"]["alt_name"~"' in q
 
 
 def test_build_overpass_queries_tags_and_terms_split_without_must_match():
@@ -217,6 +220,7 @@ def test_build_overpass_queries_includes_terms_regex():
     query = build_overpass_queries(pts, max_km=10.0, profile=profile, country_code="DE")[0]
     assert "Campingplatz" in query
     assert "campsite" in query
+    assert '["alt_name"~"' in query
 
 
 def test_build_overpass_queries_multiple_element_types():
@@ -392,6 +396,40 @@ def test_extract_candidates_name_from_tags(sample_track_points):
     data = {"elements": [node]}
     result = extract_candidates(data, sample_track_points, max_km=10.0, profile=profile)
     assert result[0]["name"] == "Campingpark München"
+
+
+def test_extract_candidates_require_distinct_name_skips_unnamed(sample_track_points):
+    """When require_distinct_name is set, drop POIs that would use the profile description as label."""
+    profile = _make_profile(
+        tags=({"key": "leisure", "value": "swimming_pool"},),
+        terms={},
+        require_distinct_name=True,
+    )
+    unnamed = _make_node(node_id=1, lat=48.14, lon=11.58, tags={"leisure": "swimming_pool"})
+    named = _make_node(
+        node_id=2,
+        lat=48.15,
+        lon=11.58,
+        tags={"leisure": "swimming_pool", "name": "Stadtbad Nord"},
+    )
+    data = {"elements": [unnamed, named]}
+    result = extract_candidates(data, sample_track_points, max_km=10.0, profile=profile)
+    assert len(result) == 1
+    assert result[0]["name"] == "Stadtbad Nord"
+
+
+def test_extract_candidates_alt_name_used_when_no_name(sample_track_points):
+    """extract_candidates must use alt_name for display when name is absent."""
+    profile = _make_profile()
+    node = _make_node(
+        node_id=1,
+        lat=48.14,
+        lon=11.58,
+        tags={"tourism": "camp_site", "alt_name": "SeeCamp West"},
+    )
+    data = {"elements": [node]}
+    result = extract_candidates(data, sample_track_points, max_km=10.0, profile=profile)
+    assert result[0]["name"] == "SeeCamp West"
 
 
 def test_extract_candidates_distance_km_is_non_negative(sample_track_points):

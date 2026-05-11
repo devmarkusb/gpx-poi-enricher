@@ -66,6 +66,7 @@ def _make_profile(
         retries=retries,
         early_cancel_if_no_pois=early_cancel_if_no_pois,
         early_cancel_after_batches=early_cancel_after_batches,
+        require_distinct_name=False,
     )
 
 

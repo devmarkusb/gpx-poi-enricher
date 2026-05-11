@@ -1,15 +1,37 @@
 id: attractions_family
 description: "Generally spectacular child-friendly attraction"
 symbol: Scenic Area
+must_match_terms: true
 defaults:
   max_km: 10.0
   sample_km: 10.0
   batch_size: 3
   retries: 3
   early_cancel_if_no_pois: false
-tags: []
+tags:
+  - key: tourism
+    value: theme_park
+  - key: leisure
+    value: water_park
 terms:
-  DE: ["familienfreundlich"]
-  FR: ["familial"]
-  ES: ["familiar"]
-  EN: ["family attraction", "kid friendly attraction"]
+  DE:
+    - Familie
+    - Kinder
+    - Erlebnis
+    - Abenteuer
+    - Freizeit
+    - Rutschen
+    - Wildwasser
+    - Wasserwelt
+  FR:
+    - famille
+    - enfants
+    - familial
+  ES:
+    - familia
+    - niños
+    - infantil
+  EN:
+    - family
+    - kids
+    - children
