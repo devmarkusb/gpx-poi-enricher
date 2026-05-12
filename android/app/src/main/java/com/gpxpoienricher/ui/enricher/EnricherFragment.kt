@@ -90,8 +90,11 @@ class EnricherFragment : Fragment() {
         }
 
         viewModel.logLines.observe(viewLifecycleOwner) { lines ->
-            binding.logOutput.text = lines.joinToString("\n")
-            binding.logScroll.post { binding.logScroll.fullScroll(View.FOCUS_DOWN) }
+            val b = _binding ?: return@observe
+            b.logOutput.text = lines.joinToString("\n")
+            b.logScroll.post {
+                _binding?.logScroll?.fullScroll(View.FOCUS_DOWN)
+            }
         }
 
         viewModel.snackbar.observe(viewLifecycleOwner) { msg ->
