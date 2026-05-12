@@ -82,6 +82,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
         val profile = _profiles.value?.getOrNull(profileIndex)
             ?: run { _snackbar.value = "No profile selected"; return }
 
+        job?.cancel()
         job = viewModelScope.launch {
             _isRunning.value = true
             _result.value = null
