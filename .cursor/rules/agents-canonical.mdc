@@ -1,0 +1,8 @@
+---
+description: Point Cursor agents to repository AGENTS.md (canonical instructions)
+alwaysApply: true
+---
+
+# gpx-poi-enricher
+
+Follow **`AGENTS.md`** at the repo root for build, test, lint, architecture, and “do not edit” rules. Do not duplicate that document here; use this rule only as a Cursor entry hook.
