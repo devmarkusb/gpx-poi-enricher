@@ -1,14 +1,18 @@
 id: theme_park
-description: "Theme Park"
+description: Theme Park
 symbol: Amusement Park
 defaults:
-  max_km: 5.0
+  max_km: 2.0
   sample_km: 15.0
   batch_size: 3
   retries: 2
+  early_cancel_if_no_pois: false
+  early_cancel_after_batches: 3
 tags:
-  - key: tourism
-    value: theme_park
-  - key: tourism
-    value: attraction
+- key: tourism
+  value: theme_park
+- key: tourism
+  value: attraction
 terms: {}
+must_match_terms: false
+require_distinct_name: true
