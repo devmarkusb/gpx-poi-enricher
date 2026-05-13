@@ -127,12 +127,13 @@ android {
 
 chaquopy {
     defaultConfig {
-        // Chaquopy's bundled pip uses 'cgi' (removed in Python 3.13+); force 3.12 as build host.
-        listOf(
-            "/opt/homebrew/opt/python@3.12/bin/python3.12",
-            "/usr/bin/python3.12",
-        ).firstOrNull { File(it).canExecute() }?.let { buildPython(it) }
-        version = "3.11"
+        val py = listOf(
+            "/opt/homebrew/opt/python@3.13/bin/python3.13",
+            "/usr/bin/python3.13",
+            "/usr/local/bin/python3.13",
+        ).firstOrNull { File(it).canExecute() }
+        buildPython(py ?: "python3.13")
+        version = "3.13"
         pip {
             install("requests>=2.28")
             install("gpxpy>=1.6")

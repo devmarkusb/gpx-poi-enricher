@@ -66,6 +66,12 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Python 3.13 (Chaquopy buildPython)
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.metadata_only) }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
       - name: Decode upload keystore
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.metadata_only) }}
         working-directory: android
