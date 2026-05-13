@@ -1,6 +1,7 @@
 id: zoo
 description: "Zoo, Petting Zoo"
 symbol: Zoo
+require_distinct_name: true
 defaults:
   max_km: 12.0
   sample_km: 6.0
