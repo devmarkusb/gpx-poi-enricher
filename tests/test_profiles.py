@@ -53,15 +53,19 @@ def test_load_profile_camping_has_tags(profiles_dir):
     assert len(profile.tags) > 0
 
 
-def test_load_profile_attractions_family_disables_early_cancel(profiles_dir):
-    """attractions_family disables empty-batch early exit (sparse POIs)."""
-    profile = load_profile("attractions_family", profiles_dir=profiles_dir)
+def test_load_profile_theme_park_disables_early_cancel(profiles_dir):
+    """theme_park disables empty-batch early exit (sparse POIs)."""
+    profile = load_profile("theme_park", profiles_dir=profiles_dir)
     assert profile.early_cancel_if_no_pois is False
 
 
-def test_load_profile_attractions_family_tags_and_terms_and_combined(profiles_dir):
-    """attractions_family ANDs theme_park / water_park tags with family keyword regex (must_match_terms)."""
-    profile = load_profile("attractions_family", profiles_dir=profiles_dir)
+def test_must_match_terms_ands_tags_with_term_queries():
+    """must_match_terms=True ANDs tag hits with keyword term matches."""
+    profile = _make_profile(
+        must_match_terms=True,
+        tags=({"key": "tourism", "value": "theme_park"}, {"key": "leisure", "value": "water_park"}),
+        terms={"DE": ["Familienpark", "Freizeitpark"], "EN": ["family park"]},
+    )
     assert profile.must_match_terms is True
     assert profile.terms_for_country("DE")
     assert len(profile.tags) == 2
