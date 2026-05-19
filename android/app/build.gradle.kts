@@ -48,9 +48,9 @@ val keystorePropertiesFile = rootProject.file("keystore.properties")
 //   admobBannerAdUnitId=ca-app-pub-XXXX/ZZZZ
 //   removeAdsInappProductId=remove_ads
 val admobAppId = loadOptionalLocalProperty("admobAppId")
-    ?: "ca-app-pub-3940256099942544~3347511713"
+    ?: "ca-app-pub-9969776505193133~2396734674"
 val admobBannerUnitId = loadOptionalLocalProperty("admobBannerAdUnitId")
-    ?: "ca-app-pub-3940256099942544/6300978111"
+    ?: "ca-app-pub-9969776505193133/7764611428"
 val removeAdsProductId = loadOptionalLocalProperty("removeAdsInappProductId") ?: "remove_ads"
 
 android {
