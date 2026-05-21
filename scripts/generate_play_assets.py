@@ -83,16 +83,19 @@ def gen_feature_1024_500() -> Image.Image:
         for y in range(h):
             px[x, y] = (r, g, b)
     draw = ImageDraw.Draw(img)
-    title_font = try_font(52)
+    title_font = try_font(48)
     sub_font = try_font(22)
-    draw.text((48, 130), "GPX POI Enricher", font=title_font, fill=WHITE)
-    draw.text(
-        (48, 218),
-        "Maps → GPX  ·  OSM POIs  ·  Waypoint tools",
-        font=sub_font,
-        fill=(0xCC, 0xFB, 0xF1),
-    )
-    draw_pin(draw, 860, 230, scale=9.5, fill=TEAL, outline=(0x0F, 0x76, 0x6E))
+
+    # Google Play renders feature graphics in several card formats and may crop
+    # the left/right edges. Keep all meaningful content inside the central area.
+    def centered_text(y: int, text: str, font, fill) -> None:
+        left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
+        x = (w - (right - left)) / 2 - left
+        draw.text((x, y - top), text, font=font, fill=fill)
+
+    draw_pin(draw, w / 2, 138, scale=3.9, fill=TEAL, outline=(0x0F, 0x76, 0x6E))
+    centered_text(254, "GPX POI Enricher", title_font, WHITE)
+    centered_text(332, "Maps → GPX  ·  OSM POIs", sub_font, (0xCC, 0xFB, 0xF1))
     return img
 
 
