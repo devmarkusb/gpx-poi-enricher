@@ -46,11 +46,14 @@ val keystorePropertiesFile = rootProject.file("keystore.properties")
 // AdMob / Play Billing overrides (optional keys in android/local.properties or repo-root local.properties):
 //   admobAppId=ca-app-pub-XXXX~YYYY
 //   admobBannerAdUnitId=ca-app-pub-XXXX/ZZZZ
+//   admobInterstitialAdUnitId=ca-app-pub-XXXX/IIII
 //   removeAdsInappProductId=remove_ads
 val admobAppId = loadOptionalLocalProperty("admobAppId")
     ?: "ca-app-pub-9969776505193133~2396734674"
 val admobBannerUnitId = loadOptionalLocalProperty("admobBannerAdUnitId")
     ?: "ca-app-pub-9969776505193133/7764611428"
+val admobInterstitialUnitId = loadOptionalLocalProperty("admobInterstitialAdUnitId")
+    ?: "ca-app-pub-9969776505193133/7014319304"
 val removeAdsProductId = loadOptionalLocalProperty("removeAdsInappProductId") ?: "remove_ads"
 
 android {
@@ -67,6 +70,7 @@ android {
 
         manifestPlaceholders["admobAppId"] = admobAppId
         resValue("string", "admob_banner_ad_unit_id", admobBannerUnitId)
+        resValue("string", "admob_interstitial_ad_unit_id", admobInterstitialUnitId)
         buildConfigField("String", "REMOVE_ADS_INAPP_PRODUCT_ID", "\"$removeAdsProductId\"")
 
         ndk {
