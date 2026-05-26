@@ -49,6 +49,15 @@ All tests must pass before submitting a pull request.
 pre-commit run --all-files
 ```
 
+### 6. Run the dependency audit
+
+```bash
+uv audit --locked --preview-features audit
+```
+
+This checks the resolved dependency set in `uv.lock` against known vulnerability data and fails if
+the lockfile is stale.
+
 ---
 
 ## Adding a New Profile
@@ -83,6 +92,8 @@ expected `id` and `description` are present.
 - **Tests are required**: new features and bug fixes must include tests. The CI
   will reject PRs that reduce overall coverage without justification.
 - **pre-commit must pass** — run `pre-commit run --all-files` locally and fix all reported issues before pushing.
+- **Dependency audit must pass** — run `uv audit --locked --preview-features audit` after
+  dependency or lockfile changes.
 - **One concern per PR**: keep PRs focused. If you want to fix a bug and add a
   feature, open two separate PRs.
 - **Commit messages**: follow [Conventional Commits](https://www.conventionalcommits.org/)
