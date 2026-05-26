@@ -23,6 +23,7 @@ attribution.
   `uv run pytest --cov=gpx_poi_enricher --cov-report=term-missing --cov-report=xml -v`
 - **Python (quick local):** `uv run pytest` (uses `[tool.pytest.ini_options]` in
   `pyproject.toml`)
+- **Dependency audit (matches CI):** `uv audit --locked --preview-features audit`
 - **Android unit tests:** `./gradlew test` from `android/` — **unverified** without a local SDK;
   needs `ANDROID_HOME` or `sdk.dir` in `android/local.properties`. CI uses
   `.github/workflows/android-play.yml` for releases, not a routine Gradle test job.
@@ -98,6 +99,7 @@ when bumping versions.
 - [ ] Commands run (or clearly marked skipped / unverified) align with sections 2–4.
 - [ ] No accidental edits to lockfiles, secrets paths, or generated dirs.
 - [ ] Python tests pass when behavior changed; Android tests noted if SDK missing.
+- [ ] Dependency audit passes when dependency metadata or lock state changed.
 - [ ] **Conventional commits** may be enforced on `main` via CI + `conventional-pre-commit`—follow
   conventional style for commit messages when asked to commit.
 
