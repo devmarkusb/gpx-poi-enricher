@@ -57,7 +57,7 @@ jobs:
       PLAY_RELEASE_STATUS: ${{ vars.PLAY_RELEASE_STATUS }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up JDK 17
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.metadata_only) }}
