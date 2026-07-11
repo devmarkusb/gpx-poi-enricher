@@ -1,5 +1,7 @@
 GPX POI Enricher: turn Google Maps directions into a routed GPX track and enrich the route with OpenStreetMap points of interest using built-in YAML profiles (camping, food, beaches, playgrounds, and more).
 
+<b>Tip:</b> Pair with <b>Maps GPX</b> — https://play.google.com/store/apps/details?id=org.cismypa.gpxlink — to view tracks on a map and open Google Maps POI details with a tap.
+
 <b>What you can do</b>
 • Paste a Maps directions link and let it be converted to a routed GPX
 • Run POI enrichment along a track with configurable profiles (camping, food, beaches, playgrounds, and more)
@@ -10,10 +12,8 @@ GPX POI Enricher: turn Google Maps directions into a routed GPX track and enrich
 <b>Who it is for</b>
 Campers, hikers, cyclists, and road-trip planners who already use GPX with Garmin, OsmAnd, or Google My Maps and want the enrich / split / maps-to-GPX pipeline on the go.
 
-<b>Recommendation</b>
-Use in combination with Maps GPX https://play.google.com/store/apps/details?id=org.cismypa.gpxlink&hl=en-US
-to view the track on a map and open Google Maps POI information by simple tap.
-That way you can selectively choose POIs to be saved in your Google Maps account (Markers, Favorites ...)
+<b>Maps GPX companion</b>
+View enriched tracks on a map, tap POIs for Google Maps details, and save the ones you want to your Google Maps account (Markers, Favorites, …).
 
 <b>Privacy & network</b>
 Online steps (geocoding, routing, Overpass) use public endpoints; see the project README for rate limits and attribution. The app does not require an account. It may show third-party ads; you can remove ads permanently with a one-time in-app purchase from the project menu.
