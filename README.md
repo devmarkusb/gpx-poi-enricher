@@ -21,6 +21,7 @@
 - [Command: gpx-split-waypoints](#command-gpx-split-waypoints)
 - [Command: gpx-poi-enricher](#command-gpx-poi-enricher)
 - [Built-in Profiles](#built-in-profiles)
+- [POI catalog](#poi-catalog)
 - [Creating Custom Profiles](#creating-custom-profiles)
 - [How It Works](#how-it-works)
 - [Data Attribution](#data-attribution)
@@ -58,9 +59,10 @@ All three commands install together and can be run alone or chained. Split and P
 - **`maps-to-gpx`** — Google Maps URL (incl. `maps.app.goo.gl`) → routed GPX via Nominatim + public
   OSRM; custom base URL via `OSRM_BASE_URL` or `--osrm-base-url`. No API keys for defaults.
 - **`gpx-split-waypoints`** — evenly spaced split `<wpt>` markers for waypoint-limited apps.
-- **`gpx-poi-enricher`** — OSM POIs along a track; **11** YAML profiles; **`--quick`** for sparse
-  smoke tests.
-- **GUI** (`gpx-poi-enricher-gui`) — **Easy**: URL → GPX(s) → POIs; **Expert**: CLI tools in tabs.
+- **`gpx-poi-enricher`** — OSM POIs along a track; **10** curated YAML profiles plus a **POI
+  catalog** (~95 common types); **`--quick`** for sparse smoke tests.
+- **GUI** (`gpx-poi-enricher-gui`) — **Easy**: URL → GPX(s) → POIs; **Expert**: CLI tools in tabs;
+  **Profiles**: add POI types from the built-in catalog.
 - Country-aware **`terms`** (`DE`, `FR`, `ES`, `EN`); Overpass mirrors with retries; per-profile
   defaults overridable on the CLI; custom YAML via **`GPX_POI_PROFILES_DIR`**.
 
@@ -118,8 +120,10 @@ From a clone: `uv run gpx-poi-enricher-gui`.
 alternate/detour GPX files, then POI enrichment. Progress log + file list; cancel after current
 Overpass batch.
 
-**Expert** — POI Enricher, Split Waypoints, and Maps → GPX tabs (same CLIs; Maps tab supports
-multiple URLs like Easy). Long-running work is off the UI thread.
+**Expert** — POI Enricher, Split Waypoints, Maps → GPX, and **Profiles** tabs (same CLIs; Maps tab
+supports multiple URLs like Easy). **Profiles → Add from catalog…** adds common OSM POI types
+(museums, pharmacies, viewpoints, …) as editable user profiles. Long-running work is off the UI
+thread.
 
 ---
 
@@ -202,19 +206,50 @@ From `profiles/`. `gpx-poi-enricher --list-profiles` shows `sample_km`, `batch_s
 | `zoo` | Zoo, Petting Zoo | 12.0 |
 | `aquarium` | Aquarium | 15.0 |
 | `mcdonalds` | McDonalds | 5.0 |
-| `restaurant` | Restaurant with Kids Menu | 5.0 |
+| `restaurant` | Restaurant | 2.0 |
 | `kids_activities` | Children's Activities of All Kinds | 15.0 |
-| `attractions` | Generally spectacular child-friendly attraction | 10.0 |
 
-**`attractions`** and **`kids_activities`** match mainly via **`terms`** (regex on OSM `name` /
-`description` / `operator`); others use **`tags`**, optionally plus **`terms`**.
+**`kids_activities`** matches mainly via **`terms`** (regex on OSM `name` / `description` /
+`operator`); most others use **`tags`**, optionally plus **`terms`**.
+
+---
+
+## POI catalog
+
+Besides the curated built-ins above, the app ships a **catalog of ~95 common OSM POI types**
+(restaurants, museums, pharmacies, viewpoints, …) in
+`src/gpx_poi_enricher/data/poi_catalog.yaml`.
+
+**Desktop GUI:** Expert → **Profiles** → **Add from catalog…** — searchable list by category.
+**Android:** **Profiles** tab → **Add from catalog…**
+
+Choosing an entry writes a **user profile** YAML with:
+
+- OSM **`tags`** from the catalog entry
+- **`defaults`** from a preset bucket (`urban_dense`, `regional_sparse`, …) — e.g. tight radius for
+  shops, wider radius for zoos
+- empty **`terms`** (tag-only search; edit later if you need name matching)
+
+If the profile id already exists (e.g. built-in `aquarium`), saving from the catalog creates a
+**user override** with the same id. You can edit radius, symbols, or add `terms` afterward.
+
+Programmatic use:
+
+```python
+from gpx_poi_enricher.poi_catalog import save_catalog_entry
+
+save_catalog_entry("museum")  # writes ~/.config/gpx-poi-enricher/profiles/museum.yaml (desktop)
+```
 
 ---
 
 ## Creating Custom Profiles
 
-Add a YAML file; **`id`** or filename (without `.yaml`) is the profile id. With PyPI installs, set
-**`GPX_POI_PROFILES_DIR`** to use **only** your profiles.
+**Easiest:** use **Add from catalog…** in the GUI (see [POI catalog](#poi-catalog)) for standard OSM
+types, then edit the generated YAML if needed.
+
+**Manual:** add a YAML file; **`id`** or filename (without `.yaml`) is the profile id. With PyPI
+installs, set **`GPX_POI_PROFILES_DIR`** to use **only** your profiles.
 
 ```yaml
 # profiles/my_profile.yaml

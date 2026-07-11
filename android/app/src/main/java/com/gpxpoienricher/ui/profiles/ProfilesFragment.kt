@@ -2,16 +2,21 @@ package com.gpxpoienricher.ui.profiles
 
 import android.content.DialogInterface
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
+import android.widget.ListView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.textfield.TextInputEditText
+import com.gpxpoienricher.R
 import com.gpxpoienricher.data.ProfileInfo
 import com.gpxpoienricher.databinding.FragmentProfilesBinding
 
@@ -23,8 +28,11 @@ class ProfilesFragment : Fragment() {
     private val viewModel: ProfilesViewModel by viewModels()
 
     private var profileList: List<ProfileInfo> = emptyList()
+    private var catalogItems: List<CatalogListItem> = emptyList()
     private var suppressSpinnerCallback = false
     private var lastSelectedId: String? = null
+    private var catalogDialog: AlertDialog? = null
+    private var pendingCatalogDialog = false
 
     private val importYaml = registerForActivityResult(
         ActivityResultContracts.OpenDocument(),
@@ -101,9 +109,40 @@ class ProfilesFragment : Fragment() {
         }
 
         viewModel.snackbar.observe(viewLifecycleOwner) { msg ->
-            if (!msg.isNullOrBlank()) {
-                Snackbar.make(binding.root, msg, Snackbar.LENGTH_LONG).show()
-                viewModel.clearSnackbar()
+            if (msg.isNullOrBlank()) return@observe
+            when {
+                msg.startsWith("exists:") -> {
+                    val entryId = msg.removePrefix("exists:")
+                    val label = catalogItems.find { it.entryId == entryId }?.label ?: entryId
+                    AlertDialog.Builder(requireContext())
+                        .setTitle(R.string.title_catalog_picker)
+                        .setMessage(getString(R.string.msg_catalog_profile_exists, label))
+                        .setPositiveButton(android.R.string.ok) { _, _ ->
+                            viewModel.addFromCatalog(entryId, allowOverride = true)
+                        }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .show()
+                }
+                msg.startsWith("added:") -> {
+                    val entryId = msg.removePrefix("added:")
+                    lastSelectedId = entryId
+                    val label = catalogItems.find { it.entryId == entryId }?.label ?: entryId
+                    Snackbar.make(
+                        binding.root,
+                        getString(R.string.msg_catalog_profile_added, label),
+                        Snackbar.LENGTH_LONG,
+                    ).show()
+                }
+                else -> Snackbar.make(binding.root, msg, Snackbar.LENGTH_LONG).show()
+            }
+            viewModel.clearSnackbar()
+        }
+
+        viewModel.catalogItems.observe(viewLifecycleOwner) { items ->
+            catalogItems = items
+            if (pendingCatalogDialog && items.isNotEmpty()) {
+                pendingCatalogDialog = false
+                showCatalogDialog()
             }
         }
 
@@ -112,6 +151,7 @@ class ProfilesFragment : Fragment() {
             binding.btnSaveProfile.isEnabled = en
             binding.btnRevertProfile.isEnabled = en
             binding.btnNewTemplate.isEnabled = en
+            binding.btnAddFromCatalog.isEnabled = en
             binding.btnImportProfile.isEnabled = en
             binding.btnExportProfile.isEnabled = en
             binding.btnDeleteProfile.isEnabled = en
@@ -125,6 +165,14 @@ class ProfilesFragment : Fragment() {
             profileList.getOrNull(idx)?.let { viewModel.loadProfile(it.id) }
         }
         binding.btnNewTemplate.setOnClickListener { viewModel.loadTemplate() }
+        binding.btnAddFromCatalog.setOnClickListener {
+            if (catalogItems.isEmpty()) {
+                pendingCatalogDialog = true
+                viewModel.loadCatalog()
+            } else {
+                showCatalogDialog()
+            }
+        }
         binding.btnImportProfile.setOnClickListener {
             importYaml.launch(arrayOf("application/x-yaml", "text/plain", "*/*"))
         }
@@ -151,7 +199,58 @@ class ProfilesFragment : Fragment() {
         }
     }
 
+    private fun showCatalogDialog() {
+        if (catalogItems.isEmpty()) {
+            pendingCatalogDialog = true
+            viewModel.loadCatalog()
+            return
+        }
+        val dialogView = layoutInflater.inflate(R.layout.dialog_profile_catalog, null)
+        val filterEdit = dialogView.findViewById<TextInputEditText>(R.id.catalog_filter)
+        val listView = dialogView.findViewById<ListView>(R.id.catalog_list)
+        var filtered = catalogItems
+        val adapter = ArrayAdapter(
+            requireContext(),
+            android.R.layout.simple_list_item_1,
+            filtered.map { it.displayLabel() }.toMutableList(),
+        )
+        listView.adapter = adapter
+        filterEdit?.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                val needle = s?.toString()?.trim()?.lowercase().orEmpty()
+                filtered = if (needle.isEmpty()) {
+                    catalogItems
+                } else {
+                    catalogItems.filter {
+                        it.label.lowercase().contains(needle) ||
+                            it.categoryLabel.lowercase().contains(needle) ||
+                            it.entryId.contains(needle)
+                    }
+                }
+                adapter.clear()
+                adapter.addAll(filtered.map { it.displayLabel() })
+            }
+        })
+        catalogDialog?.dismiss()
+        catalogDialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.title_catalog_picker)
+            .setView(dialogView)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        listView.onItemClickListener = AdapterView.OnItemClickListener { _, _, position, _ ->
+            val item = filtered.getOrNull(position) ?: return@OnItemClickListener
+            catalogDialog?.dismiss()
+            lastSelectedId = item.entryId
+            viewModel.addFromCatalog(item.entryId)
+        }
+        catalogDialog?.show()
+    }
+
     override fun onDestroyView() {
+        catalogDialog?.dismiss()
+        catalogDialog = null
         _binding = null
         super.onDestroyView()
     }

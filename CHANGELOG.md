@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **POI catalog** (~95 common OpenStreetMap POI types) for one-click profile creation in the
+  desktop GUI (**Profiles → Add from catalog…**) and Android app (**Profiles → Add from catalog…**).
+  Catalog entries become user YAML profiles with preset search-radius defaults; edit afterward like
+  any custom profile. Data: `src/gpx_poi_enricher/data/poi_catalog.yaml`.
+
 ---
 
 ## [0.1.0] - 2026-04-21

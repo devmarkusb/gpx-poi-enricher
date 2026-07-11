@@ -3,8 +3,9 @@ GPX POI Enricher: turn Google Maps directions into a routed GPX track and enrich
 <b>What you can do</b>
 • Paste a Maps directions link and let it be converted to a routed GPX
 • Run POI enrichment along a track with configurable profiles (camping, food, beaches, playgrounds, and more)
+• Add profiles from a built-in catalog of common OSM POI types (museums, pharmacies, cafés, and more)
 • Optionally add evenly spaced split markers
-• Edit profiles
+• Edit profiles (YAML)
 
 <b>Who it is for</b>
 Campers, hikers, cyclists, and road-trip planners who already use GPX with Garmin, OsmAnd, or Google My Maps and want the enrich / split / maps-to-GPX pipeline on the go.

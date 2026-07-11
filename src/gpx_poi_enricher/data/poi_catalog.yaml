@@ -1,0 +1,701 @@
+# Curated OSM POI types for "Add from catalog" profile creation.
+# Presets: local_small, urban_dense, suburban, regional_sparse, regional_wide
+categories:
+  - id: food_drink
+    label: Food & drink
+    entries:
+      - id: restaurant
+        label: Restaurant
+        symbol: Restaurant
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: restaurant
+      - id: cafe
+        label: Café
+        symbol: Coffee Shop
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: cafe
+      - id: fast_food
+        label: Fast food
+        symbol: Fast Food
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: fast_food
+      - id: bar
+        label: Bar
+        symbol: Bar
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: bar
+      - id: pub
+        label: Pub
+        symbol: Bar
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: pub
+      - id: ice_cream
+        label: Ice cream
+        symbol: Ice Cream
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: ice_cream
+      - id: bakery
+        label: Bakery
+        symbol: Bakery
+        preset: urban_dense
+        tags:
+          - key: shop
+            value: bakery
+      - id: biergarten
+        label: Beer garden
+        symbol: Bar
+        preset: suburban
+        tags:
+          - key: amenity
+            value: biergarten
+      - id: food_court
+        label: Food court
+        symbol: Restaurant
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: food_court
+
+  - id: accommodation
+    label: Accommodation
+    entries:
+      - id: hotel
+        label: Hotel
+        symbol: Lodging
+        preset: suburban
+        tags:
+          - key: tourism
+            value: hotel
+      - id: hostel
+        label: Hostel
+        symbol: Lodging
+        preset: suburban
+        tags:
+          - key: tourism
+            value: hostel
+      - id: motel
+        label: Motel
+        symbol: Lodging
+        preset: suburban
+        tags:
+          - key: tourism
+            value: motel
+      - id: guest_house
+        label: Guest house
+        symbol: Bed & Breakfast
+        preset: suburban
+        tags:
+          - key: tourism
+            value: guest_house
+      - id: camp_site
+        label: Campsite
+        symbol: Campground
+        preset: suburban
+        tags:
+          - key: tourism
+            value: camp_site
+      - id: caravan_site
+        label: Caravan / RV site
+        symbol: RV Park
+        preset: suburban
+        tags:
+          - key: tourism
+            value: caravan_site
+      - id: alpine_hut
+        label: Alpine hut
+        symbol: Campground
+        preset: regional_sparse
+        tags:
+          - key: tourism
+            value: alpine_hut
+      - id: chalet
+        label: Chalet
+        symbol: Lodging
+        preset: suburban
+        tags:
+          - key: tourism
+            value: chalet
+
+  - id: shopping
+    label: Shopping
+    entries:
+      - id: supermarket
+        label: Supermarket
+        symbol: Shopping Center
+        preset: urban_dense
+        tags:
+          - key: shop
+            value: supermarket
+      - id: convenience
+        label: Convenience store
+        symbol: Shopping Center
+        preset: urban_dense
+        tags:
+          - key: shop
+            value: convenience
+      - id: mall
+        label: Shopping mall
+        symbol: Shopping Center
+        preset: suburban
+        tags:
+          - key: shop
+            value: mall
+      - id: clothes
+        label: Clothes shop
+        symbol: Shopping Center
+        preset: urban_dense
+        tags:
+          - key: shop
+            value: clothes
+      - id: shoes
+        label: Shoe shop
+        symbol: Shopping Center
+        preset: urban_dense
+        tags:
+          - key: shop
+            value: shoes
+      - id: electronics
+        label: Electronics shop
+        symbol: Shopping Center
+        preset: urban_dense
+        tags:
+          - key: shop
+            value: electronics
+      - id: hardware
+        label: Hardware store
+        symbol: Shopping Center
+        preset: suburban
+        tags:
+          - key: shop
+            value: hardware
+      - id: books
+        label: Bookshop
+        symbol: Shopping Center
+        preset: urban_dense
+        tags:
+          - key: shop
+            value: books
+      - id: gift
+        label: Gift shop
+        symbol: Shopping Center
+        preset: urban_dense
+        tags:
+          - key: shop
+            value: gift
+      - id: sports
+        label: Sports shop
+        symbol: Shopping Center
+        preset: urban_dense
+        tags:
+          - key: shop
+            value: sports
+      - id: outdoor
+        label: Outdoor shop
+        symbol: Shopping Center
+        preset: suburban
+        tags:
+          - key: shop
+            value: outdoor
+      - id: bicycle_shop
+        label: Bicycle shop
+        symbol: Shopping Center
+        preset: urban_dense
+        tags:
+          - key: shop
+            value: bicycle
+
+  - id: tourism
+    label: Tourism & culture
+    entries:
+      - id: museum
+        label: Museum
+        symbol: Museum
+        preset: regional_sparse
+        tags:
+          - key: tourism
+            value: museum
+      - id: aquarium
+        label: Aquarium
+        symbol: Aquarium
+        preset: regional_sparse
+        tags:
+          - key: tourism
+            value: aquarium
+      - id: zoo
+        label: Zoo
+        symbol: Zoo
+        preset: regional_sparse
+        tags:
+          - key: tourism
+            value: zoo
+      - id: theme_park
+        label: Theme park
+        symbol: Amusement Park
+        preset: regional_sparse
+        tags:
+          - key: tourism
+            value: theme_park
+      - id: viewpoint
+        label: Viewpoint
+        symbol: Scenic Area
+        preset: regional_wide
+        tags:
+          - key: tourism
+            value: viewpoint
+      - id: attraction
+        label: Tourist attraction
+        symbol: Scenic Area
+        preset: regional_sparse
+        tags:
+          - key: tourism
+            value: attraction
+      - id: gallery
+        label: Art gallery
+        symbol: Museum
+        preset: regional_sparse
+        tags:
+          - key: tourism
+            value: gallery
+      - id: artwork
+        label: Public artwork
+        symbol: Scenic Area
+        preset: suburban
+        tags:
+          - key: tourism
+            value: artwork
+      - id: information
+        label: Tourist information
+        symbol: Information
+        preset: urban_dense
+        tags:
+          - key: tourism
+            value: information
+      - id: picnic_site
+        label: Picnic site
+        symbol: Picnic Area
+        preset: suburban
+        tags:
+          - key: tourism
+            value: picnic_site
+
+  - id: leisure
+    label: Leisure & recreation
+    entries:
+      - id: playground
+        label: Playground
+        symbol: Playground
+        preset: local_small
+        tags:
+          - key: leisure
+            value: playground
+      - id: swimming_pool
+        label: Swimming pool
+        symbol: Swimming Area
+        preset: suburban
+        tags:
+          - key: leisure
+            value: swimming_pool
+      - id: water_park
+        label: Water park
+        symbol: Swimming Area
+        preset: regional_sparse
+        tags:
+          - key: leisure
+            value: water_park
+      - id: sports_centre
+        label: Sports centre
+        symbol: Fitness Center
+        preset: suburban
+        tags:
+          - key: leisure
+            value: sports_centre
+      - id: fitness_centre
+        label: Fitness centre / gym
+        symbol: Fitness Center
+        preset: urban_dense
+        tags:
+          - key: leisure
+            value: fitness_centre
+      - id: golf_course
+        label: Golf course
+        symbol: Golf Course
+        preset: regional_wide
+        tags:
+          - key: leisure
+            value: golf_course
+      - id: marina
+        label: Marina
+        symbol: Marina
+        preset: suburban
+        tags:
+          - key: leisure
+            value: marina
+      - id: park
+        label: Park
+        symbol: Park
+        preset: suburban
+        tags:
+          - key: leisure
+            value: park
+      - id: nature_reserve
+        label: Nature reserve
+        symbol: Park
+        preset: regional_wide
+        tags:
+          - key: leisure
+            value: nature_reserve
+      - id: cinema
+        label: Cinema
+        symbol: Theater
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: cinema
+      - id: theatre
+        label: Theatre
+        symbol: Theater
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: theatre
+      - id: bowling_alley
+        label: Bowling alley
+        symbol: Bowling
+        preset: urban_dense
+        tags:
+          - key: leisure
+            value: bowling_alley
+      - id: trampoline_park
+        label: Trampoline park
+        symbol: Amusement Park
+        preset: regional_sparse
+        tags:
+          - key: leisure
+            value: trampoline_park
+      - id: miniature_golf
+        label: Miniature golf
+        symbol: Golf Course
+        preset: suburban
+        tags:
+          - key: leisure
+            value: miniature_golf
+      - id: beach_resort
+        label: Beach resort
+        symbol: Beach
+        preset: regional_wide
+        tags:
+          - key: leisure
+            value: beach_resort
+
+  - id: nature
+    label: Nature & outdoors
+    entries:
+      - id: beach
+        label: Beach
+        symbol: Beach
+        preset: regional_wide
+        tags:
+          - key: natural
+            value: beach
+      - id: bathing_place
+        label: Bathing place / swimming spot
+        symbol: Swimming Area
+        preset: regional_wide
+        tags:
+          - key: leisure
+            value: bathing_place
+      - id: peak
+        label: Mountain peak
+        symbol: Summit
+        preset: regional_wide
+        tags:
+          - key: natural
+            value: peak
+      - id: waterfall
+        label: Waterfall
+        symbol: Waterfall
+        preset: regional_wide
+        tags:
+          - key: waterway
+            value: waterfall
+      - id: spring
+        label: Spring
+        symbol: Spring
+        preset: regional_wide
+        tags:
+          - key: natural
+            value: spring
+      - id: cave_entrance
+        label: Cave entrance
+        symbol: Cave
+        preset: regional_sparse
+        tags:
+          - key: natural
+            value: cave_entrance
+      - id: hot_spring
+        label: Hot spring
+        symbol: Hot Spring
+        preset: regional_sparse
+        tags:
+          - key: natural
+            value: hot_spring
+
+  - id: transport
+    label: Transport
+    entries:
+      - id: fuel
+        label: Petrol / fuel station
+        symbol: Gas Station
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: fuel
+      - id: charging_station
+        label: EV charging station
+        symbol: Electric Car Charging Station
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: charging_station
+      - id: parking
+        label: Parking
+        symbol: Parking Area
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: parking
+      - id: bus_station
+        label: Bus station
+        symbol: Bus Station
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: bus_station
+      - id: train_station
+        label: Train station
+        symbol: Train Station
+        preset: suburban
+        tags:
+          - key: railway
+            value: station
+      - id: subway_entrance
+        label: Subway entrance
+        symbol: Train Station
+        preset: urban_dense
+        tags:
+          - key: railway
+            value: subway_entrance
+      - id: bicycle_parking
+        label: Bicycle parking
+        symbol: Parking Area
+        preset: local_small
+        tags:
+          - key: amenity
+            value: bicycle_parking
+      - id: taxi
+        label: Taxi stand
+        symbol: Taxi Service
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: taxi
+
+  - id: health
+    label: Health
+    entries:
+      - id: pharmacy
+        label: Pharmacy
+        symbol: Pharmacy
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: pharmacy
+      - id: hospital
+        label: Hospital
+        symbol: Hospital
+        preset: suburban
+        tags:
+          - key: amenity
+            value: hospital
+      - id: clinic
+        label: Clinic
+        symbol: Hospital
+        preset: suburban
+        tags:
+          - key: amenity
+            value: clinic
+      - id: doctors
+        label: Doctor
+        symbol: Hospital
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: doctors
+      - id: dentist
+        label: Dentist
+        symbol: Hospital
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: dentist
+      - id: veterinary
+        label: Veterinarian
+        symbol: Animal Shelter
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: veterinary
+
+  - id: education
+    label: Education
+    entries:
+      - id: school
+        label: School
+        symbol: School
+        preset: suburban
+        tags:
+          - key: amenity
+            value: school
+      - id: kindergarten
+        label: Kindergarten
+        symbol: School
+        preset: suburban
+        tags:
+          - key: amenity
+            value: kindergarten
+      - id: university
+        label: University / college
+        symbol: School
+        preset: suburban
+        tags:
+          - key: amenity
+            value: university
+      - id: library
+        label: Library
+        symbol: Library
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: library
+
+  - id: services
+    label: Services
+    entries:
+      - id: atm
+        label: ATM
+        symbol: ATM
+        preset: local_small
+        tags:
+          - key: amenity
+            value: atm
+      - id: bank
+        label: Bank
+        symbol: Bank
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: bank
+      - id: post_office
+        label: Post office
+        symbol: Post Office
+        preset: urban_dense
+        tags:
+          - key: amenity
+            value: post_office
+      - id: laundry
+        label: Laundry
+        symbol: Laundry
+        preset: urban_dense
+        tags:
+          - key: shop
+            value: laundry
+      - id: hairdresser
+        label: Hairdresser
+        symbol: Barber Shop
+        preset: urban_dense
+        tags:
+          - key: shop
+            value: hairdresser
+      - id: public_bath
+        label: Public bath / sauna
+        symbol: Hot Spring
+        preset: suburban
+        tags:
+          - key: amenity
+            value: public_bath
+
+  - id: historic
+    label: Historic
+    entries:
+      - id: castle
+        label: Castle
+        symbol: Castle
+        preset: regional_sparse
+        tags:
+          - key: historic
+            value: castle
+      - id: ruins
+        label: Ruins
+        symbol: Ruins
+        preset: regional_sparse
+        tags:
+          - key: historic
+            value: ruins
+      - id: monument
+        label: Monument
+        symbol: Monument
+        preset: suburban
+        tags:
+          - key: historic
+            value: monument
+      - id: memorial
+        label: Memorial
+        symbol: Monument
+        preset: suburban
+        tags:
+          - key: historic
+            value: memorial
+      - id: archaeological_site
+        label: Archaeological site
+        symbol: Ruins
+        preset: regional_sparse
+        tags:
+          - key: historic
+            value: archaeological_site
+      - id: battlefield
+        label: Battlefield
+        symbol: Monument
+        preset: regional_wide
+        tags:
+          - key: historic
+            value: battlefield
+
+  - id: religion
+    label: Religion
+    entries:
+      - id: place_of_worship
+        label: Place of worship
+        symbol: Church
+        preset: suburban
+        tags:
+          - key: amenity
+            value: place_of_worship
+      - id: monastery
+        label: Monastery
+        symbol: Church
+        preset: regional_sparse
+        tags:
+          - key: amenity
+            value: monastery

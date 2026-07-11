@@ -27,10 +27,13 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from .poi_catalog import catalog_entry_by_id, load_catalog, save_catalog_entry
 from .profiles import (
     SearchProfile,
     default_user_profiles_dir,
@@ -277,6 +280,99 @@ class _ProfileEditorDialog(QDialog):
         return self._result_profile
 
 
+class _CatalogPickerDialog(QDialog):
+    """Pick a POI type from the bundled catalog and save it as a user profile."""
+
+    def __init__(self, parent: QWidget | None, *, existing_ids: set[str]) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Add profile from catalog")
+        self.resize(480, 520)
+        self._existing_ids = existing_ids
+        self._selected_entry_id: str | None = None
+
+        help_lbl = QLabel(
+            "Choose a common OpenStreetMap POI type. The app creates a user profile with "
+            "sensible default search radius and sampling settings. You can edit it afterward."
+        )
+        help_lbl.setWordWrap(True)
+
+        self._filter_edit = QLineEdit()
+        self._filter_edit.setPlaceholderText("Filter by name…")
+        self._filter_edit.textChanged.connect(self._apply_filter)
+
+        self._tree = QTreeWidget()
+        self._tree.setHeaderHidden(True)
+        self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self._populate_tree()
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._on_accept)
+        buttons.rejected.connect(self.reject)
+
+        root = QVBoxLayout(self)
+        root.addWidget(help_lbl)
+        root.addWidget(self._filter_edit)
+        root.addWidget(self._tree, 1)
+        root.addWidget(buttons)
+
+    def _populate_tree(self) -> None:
+        self._tree.clear()
+        for cat in load_catalog():
+            cat_item = QTreeWidgetItem([cat.label])
+            cat_item.setFlags(cat_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            cat_item.setExpanded(True)
+            for entry in cat.entries:
+                suffix = ""
+                if entry.id in self._existing_ids:
+                    suffix = " (already installed)"
+                child = QTreeWidgetItem([f"{entry.label}{suffix}"])
+                child.setData(0, Qt.ItemDataRole.UserRole, entry.id)
+                cat_item.addChild(child)
+            if cat_item.childCount():
+                self._tree.addTopLevelItem(cat_item)
+
+    def _apply_filter(self, text: str) -> None:
+        needle = text.strip().lower()
+        for i in range(self._tree.topLevelItemCount()):
+            cat_item = self._tree.topLevelItem(i)
+            if cat_item is None:
+                continue
+            visible_children = 0
+            for j in range(cat_item.childCount()):
+                child = cat_item.child(j)
+                if child is None:
+                    continue
+                label = child.text(0).lower()
+                show = not needle or needle in label
+                child.setHidden(not show)
+                if show:
+                    visible_children += 1
+            cat_item.setHidden(visible_children == 0)
+
+    def _on_item_double_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
+        if item.data(0, Qt.ItemDataRole.UserRole):
+            self._select_item(item)
+            self.accept()
+
+    def _on_accept(self) -> None:
+        item = self._tree.currentItem()
+        if item is None or not item.data(0, Qt.ItemDataRole.UserRole):
+            QMessageBox.information(self, "Catalog", "Select a POI type from the list.")
+            return
+        self._select_item(item)
+        self.accept()
+
+    def _select_item(self, item: QTreeWidgetItem) -> None:
+        entry_id = item.data(0, Qt.ItemDataRole.UserRole)
+        if entry_id:
+            self._selected_entry_id = str(entry_id)
+
+    def selected_entry_id(self) -> str | None:
+        return self._selected_entry_id
+
+
 class ProfilesManagerTab(QWidget):
     """Expert tab: list profiles, edit user copies, import/export YAML."""
 
@@ -299,6 +395,7 @@ class ProfilesManagerTab(QWidget):
 
         btn_row = QHBoxLayout()
         for label, slot in (
+            ("Add from catalog…", self._add_from_catalog),
             ("New…", self._new),
             ("Edit…", self._edit),
             ("Duplicate…", self._duplicate),
@@ -361,6 +458,70 @@ class ProfilesManagerTab(QWidget):
         if pid not in m:
             raise KeyError(pid)
         return m[pid][0]
+
+    def _existing_profile_ids(self) -> set[str]:
+        return set(load_all_profiles_with_sources(None).keys())
+
+    def _add_from_catalog(self) -> None:
+        dlg = _CatalogPickerDialog(self, existing_ids=self._existing_profile_ids())
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        entry_id = dlg.selected_entry_id()
+        if not entry_id:
+            return
+        if entry_id in self._existing_profile_ids():
+            if (
+                QMessageBox.question(
+                    self,
+                    "Profile exists",
+                    f"A profile “{entry_id}” is already installed. Saving from the catalog "
+                    "creates a user copy that overrides the built-in one. Continue?",
+                )
+                != QMessageBox.StandardButton.Yes
+            ):
+                return
+        entry = catalog_entry_by_id(entry_id)
+        if entry is None:
+            QMessageBox.warning(self, "Catalog", f"Unknown catalog entry “{entry_id}”.")
+            return
+        try:
+            save_catalog_entry(entry_id, None)
+        except Exception as exc:
+            QMessageBox.warning(self, "Could not save", str(exc))
+            return
+        edit = QMessageBox.question(
+            self,
+            "Profile added",
+            f"Added “{entry.label}” as profile “{entry_id}”. Open the editor to customize?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        self._after_save()
+        if edit != QMessageBox.StandardButton.Yes:
+            return
+        for row in range(self._table.rowCount()):
+            id_item = self._table.item(row, 0)
+            if id_item and id_item.text() == entry_id:
+                self._table.selectRow(row)
+                break
+        try:
+            prof = self._profile_by_id(entry_id)
+        except KeyError:
+            return
+        dlg_edit = _ProfileEditorDialog(
+            self,
+            profile=prof,
+            id_editable=False,
+            title=f"Edit profile: {entry_id}",
+        )
+        if dlg_edit.exec() == QDialog.DialogCode.Accepted:
+            new_p = dlg_edit.result_profile()
+            if new_p is not None:
+                try:
+                    save_profile(new_p, None)
+                    self._after_save()
+                except Exception as exc:
+                    QMessageBox.warning(self, "Could not save", str(exc))
 
     def _new(self) -> None:
         dlg = _ProfileEditorDialog(

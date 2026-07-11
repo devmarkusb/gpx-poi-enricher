@@ -62,6 +62,12 @@
     <string name="btn_save_profile">Save</string>
     <string name="btn_revert_profile">Reload</string>
     <string name="btn_new_profile_template">New template</string>
+    <string name="btn_add_from_catalog">Add from catalog…</string>
+    <string name="title_catalog_picker">Add profile from catalog</string>
+    <string name="helper_catalog_picker">Pick a common OpenStreetMap POI type. The app creates a user profile with default search settings. You can edit the YAML afterward.</string>
+    <string name="hint_catalog_filter">Filter by name</string>
+    <string name="msg_catalog_profile_exists">Profile \"%1$s\" is already installed. Adding from the catalog creates a user copy that overrides the built-in one. Continue?</string>
+    <string name="msg_catalog_profile_added">Added \"%1$s\".</string>
     <string name="btn_import_yaml">Import YAML</string>
     <string name="btn_export_yaml">Export YAML</string>
     <string name="btn_delete_user_profile">Delete user copy</string>

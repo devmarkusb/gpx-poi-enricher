@@ -38,6 +38,17 @@ Add a test that loads the profile and checks `id` and `description`.
 
 ---
 
+## Extending the POI catalog
+
+For common single-tag OSM types (no brand filters or multilingual `terms`), add an entry to
+`src/gpx_poi_enricher/data/poi_catalog.yaml` under the right category: `id`, `label`, `symbol`, `preset`
+(one of the buckets in `poi_catalog.py` → `PRESETS`), and `tags`. Run `uv run pytest tests/test_poi_catalog.py`.
+
+Hand-tuned profiles with `terms`, `and` clauses, or special defaults still belong in `profiles/` as
+built-in YAML.
+
+---
+
 ## Pull requests
 
 - **Describe what and why** — e.g. `Add aquapark profile`, not `fix stuff`.

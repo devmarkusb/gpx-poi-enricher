@@ -28,6 +28,9 @@ class ProfilesViewModel(app: Application) : AndroidViewModel(app) {
     private val _busy = MutableLiveData(false)
     val busy: LiveData<Boolean> = _busy
 
+    private val _catalogItems = MutableLiveData<List<CatalogListItem>>(emptyList())
+    val catalogItems: LiveData<List<CatalogListItem>> = _catalogItems
+
     init {
         reloadList()
     }
@@ -122,6 +125,45 @@ class ProfilesViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun loadCatalog() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val json = Python.getInstance().getModule("gpx_bridge")
+                    .callAttr("list_catalog").toString()
+                val installed = _profiles.value?.map { it.id }?.toSet() ?: emptySet()
+                _catalogItems.postValue(parseCatalog(json, installed))
+            } catch (e: Exception) {
+                _snackbar.postValue(e.message)
+            }
+        }
+    }
+
+    fun addFromCatalog(entryId: String, allowOverride: Boolean = false) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val installed = _profiles.value?.any { it.id == entryId } == true
+            if (installed && !allowOverride) {
+                _snackbar.postValue("exists:$entryId")
+                return@launch
+            }
+            _busy.postValue(true)
+            try {
+                val dir = GpxApp.extractProfiles()
+                Python.getInstance().getModule("gpx_bridge").callAttr(
+                    "add_profile_from_catalog",
+                    dir.absolutePath,
+                    entryId,
+                )
+                _snackbar.postValue("added:$entryId")
+                reloadList()
+                loadProfile(entryId)
+            } catch (e: Exception) {
+                _snackbar.postValue(e.message ?: "Could not add profile")
+            } finally {
+                _busy.postValue(false)
+            }
+        }
+    }
+
     fun importYamlString(content: String) {
         _yaml.postValue(content)
         _sourceHint.postValue("Imported — review and Save.")
@@ -143,5 +185,28 @@ class ProfilesViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
             .sortedWith(compareBy({ it.source == "user" }, { it.description.lowercase() }))
+    }
+
+    private fun parseCatalog(json: String, installedIds: Set<String>): List<CatalogListItem> {
+        val arr = org.json.JSONArray(json)
+        val out = mutableListOf<CatalogListItem>()
+        for (i in 0 until arr.length()) {
+            val cat = arr.getJSONObject(i)
+            val categoryLabel = cat.getString("label")
+            val entries = cat.getJSONArray("entries")
+            for (j in 0 until entries.length()) {
+                val e = entries.getJSONObject(j)
+                val id = e.getString("id")
+                out.add(
+                    CatalogListItem(
+                        entryId = id,
+                        label = e.getString("label"),
+                        categoryLabel = categoryLabel,
+                        installed = id in installedIds,
+                    ),
+                )
+            }
+        }
+        return out.sortedWith(compareBy({ it.categoryLabel.lowercase() }, { it.label.lowercase() }))
     }
 }

@@ -21,6 +21,7 @@ from gpx_poi_enricher.maps_to_gpx_cli import (
     _write_gpx_segments,
     parse_waypoints_from_url,
 )
+from gpx_poi_enricher.poi_catalog import catalog_to_json, save_catalog_entry
 from gpx_poi_enricher.profiles import (
     delete_user_profile,
     dump_profile_yaml,
@@ -120,6 +121,15 @@ def new_profile_template_yaml() -> str:
 def delete_profile(profiles_dir: str, profile_id: str) -> str:
     ok = delete_user_profile(profile_id.strip().lower(), pathlib.Path(profiles_dir))
     return json.dumps({"deleted": ok})
+
+
+def list_catalog() -> str:
+    return catalog_to_json()
+
+
+def add_profile_from_catalog(profiles_dir: str, entry_id: str) -> str:
+    profile = save_catalog_entry(entry_id.strip().lower(), pathlib.Path(profiles_dir))
+    return json.dumps({"id": profile.id, "description": profile.description})
 
 
 def enrich(

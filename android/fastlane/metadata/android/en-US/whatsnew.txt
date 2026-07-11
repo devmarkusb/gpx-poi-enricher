@@ -1,1 +1,1 @@
-Maintenance and listing refresh. From Google Maps routes to POI enriched GPX tracks.
+Add search profiles from a built-in catalog of common OpenStreetMap POI types (museums, pharmacies, cafés, viewpoints, and more) — no YAML editing required to get started.
