@@ -29,6 +29,18 @@ class GpxApp : Application() {
 
         fun profilesDir(): File = File(app.filesDir, "profiles")
 
+        /** Stable GPX scratch directory (same path across runs so reused tracks are detected). */
+        fun gpxWorkDir(): File {
+            val prefs = app.getSharedPreferences("gpx_work_dir", MODE_PRIVATE)
+            prefs.getString("path", null)?.let { stored ->
+                File(stored).takeIf { it.isDirectory }?.let { return it }
+            }
+            val dir = app.getExternalFilesDir("gpx") ?: File(app.filesDir, "gpx")
+            dir.mkdirs()
+            prefs.edit().putString("path", dir.absolutePath).apply()
+            return dir
+        }
+
         internal fun init(instance: GpxApp) {
             app = instance
         }

@@ -243,6 +243,7 @@ def easy_generate(
     Returns a JSON string:
         {
           track_path, poi_path, start, finish, poi_count, track_reused,
+          reused_paths: [...],
           alternate_full_paths: [...],
           detour_results: [{"track_path", "poi_path", "poi_count"}, ...],
         }
@@ -294,9 +295,11 @@ def easy_generate(
             track_name = f"{start_label} – {finish_label}"
 
             track_reused = False
+            reused_paths: list[str] = []
             if pathlib.Path(track_path).exists():
                 sys.stderr.write(f"Primary track already exists, reusing: {track_path}\n")
                 track_reused = True
+                reused_paths.append(track_path)
             else:
                 _write_gpx(primary_pts, primary_wp, track_path, track_name)
                 sys.stderr.write(f"Primary track saved: {track_path}\n")
@@ -314,6 +317,7 @@ def easy_generate(
                         sys.stderr.write(
                             f"Alternate route GPX already exists, reusing: {alt_path}\n"
                         )
+                        reused_paths.append(alt_path_str)
                     else:
                         _write_gpx(pts, wpts, alt_path_str, alt_track)
                         sys.stderr.write(f"Alternate route GPX: {alt_path}\n")
@@ -345,6 +349,7 @@ def easy_generate(
                     det_str = str(det_path)
                     if det_path.exists():
                         sys.stderr.write(f"Detour GPX already exists, reusing: {det_path}\n")
+                        reused_paths.append(det_str)
                     else:
                         _write_gpx_segments(detour_segs, [], det_str, f"Detour (alternate {j})")
                         n_pts = sum(len(s) for s in detour_segs)
@@ -405,6 +410,7 @@ def easy_generate(
                     "finish": finish_label,
                     "poi_count": primary_poi_count,
                     "track_reused": track_reused,
+                    "reused_paths": reused_paths,
                     "alternate_full_paths": alternate_full_paths,
                     "detour_results": detour_results,
                     "milestone_paths": milestone_paths,

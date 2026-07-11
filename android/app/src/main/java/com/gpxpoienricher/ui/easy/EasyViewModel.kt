@@ -96,7 +96,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                     val ctx = getApplication<Application>()
                     val canExportPublic =
                         Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q || legacyStorageGranted
-                    val outputDir = ctx.getExternalFilesDir("gpx") ?: ctx.filesDir.resolve("gpx")
+                    val outputDir = GpxApp.gpxWorkDir()
                     outputDir.mkdirs()
 
                     val parts = milestoneParts.coerceIn(0, 9999)
@@ -145,6 +145,14 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                             }
                         }
                     }
+                    val reusedArr = obj.optJSONArray("reused_paths")
+                    val reusedPaths = buildSet {
+                        if (reusedArr != null) {
+                            for (i in 0 until reusedArr.length()) {
+                                add(reusedArr.getString(i))
+                            }
+                        }
+                    }
                     val res = Result(
                         trackPath = obj.getString("track_path"),
                         poiPath = obj.getString("poi_path"),
@@ -160,7 +168,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                     var exportOk = false
                     if (canExportPublic) {
                         try {
-                            resOut = remapResultPathsToDownloads(ctx, res)
+                            resOut = remapResultPathsToDownloads(ctx, res, reusedPaths)
                             exportOk = true
                             log("Copied GPX files to Downloads → ${GpxDownloadsExporter.FOLDER_NAME}.")
                         } catch (e: Exception) {
@@ -208,7 +216,12 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
     /** For persisting the selected profile across sessions. */
     fun profileIdAtSpinnerIndex(index: Int): String? = _profiles.value?.getOrNull(index)?.id
 
-    private fun remapResultPathsToDownloads(ctx: Application, res: Result): Result {
+    private fun remapResultPathsToDownloads(
+        ctx: Application,
+        res: Result,
+        reusedPaths: Set<String>,
+    ): Result {
+        val reusedCanonical = reusedPaths.mapNotNull { runCatching { File(it).canonicalPath }.getOrNull() }.toSet()
         val paths = LinkedHashSet<String>()
         paths.add(res.trackPath)
         paths.add(res.poiPath)
@@ -224,7 +237,12 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
             if (!f.isFile) continue
             val key = f.canonicalPath
             if (key !in displayByCanonical) {
-                displayByCanonical[key] = GpxDownloadsExporter.exportFile(ctx, f)
+                val mode = if (key in reusedCanonical) {
+                    GpxDownloadsExporter.ExportMode.SKIP_IF_EXISTS
+                } else {
+                    GpxDownloadsExporter.ExportMode.OVERWRITE
+                }
+                displayByCanonical[key] = GpxDownloadsExporter.exportFile(ctx, f, mode = mode)
             }
         }
         fun mapPath(p: String): String {
