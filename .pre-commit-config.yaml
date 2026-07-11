@@ -26,7 +26,8 @@ repos:
     # Markdown linting
     # Config file: .markdownlint.yaml
   - repo: https://github.com/igorshubovych/markdownlint-cli
-    rev: v0.48.0
+    # v0.45+ requires Node 20+; pin for Node 18 LTS dev machines (see issue #508).
+    rev: v0.44.0
     hooks:
     - id: markdownlint
 
