@@ -10,5 +10,27 @@ tags:
   - key: natural
     value: beach
   - key: leisure
+    value: beach_resort
+  - key: leisure
+    value: swimming_area
+  - key: leisure
     value: bathing_place
+    and:
+      - key: water
+        value: lake
+  - key: leisure
+    value: bathing_place
+    and:
+      - key: water
+        value: reservoir
+  - key: leisure
+    value: bathing_place
+    and:
+      - key: water
+        value: pond
+  - key: leisure
+    value: bathing_place
+    and:
+      - key: natural
+        value: beach
 terms: {}

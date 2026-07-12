@@ -148,6 +148,30 @@ def test_load_profile_outdoor_pool_swimming_pool_has_and_not(profiles_dir):
     ]
 
 
+def test_load_profile_beach_does_not_match_generic_bathing_place(profiles_dir):
+    """Beach profile must not query every leisure=bathing_place (common on river banks)."""
+    profile = load_profile("beach", profiles_dir=profiles_dir)
+    bathing_tags = [
+        t for t in profile.tags if t.get("key") == "leisure" and t.get("value") == "bathing_place"
+    ]
+    assert bathing_tags
+    assert all("and" in t for t in bathing_tags)
+
+
+def test_load_profile_beach_includes_lake_bathing_place_and_natural_beach(profiles_dir):
+    """Beach profile should still match lake bathing places and natural beaches."""
+    profile = load_profile("beach", profiles_dir=profiles_dir)
+    assert {"key": "natural", "value": "beach"} in profile.tags
+    lake_bathing = [
+        t
+        for t in profile.tags
+        if t.get("key") == "leisure"
+        and t.get("value") == "bathing_place"
+        and t.get("and") == [{"key": "water", "value": "lake"}]
+    ]
+    assert len(lake_bathing) == 1
+
+
 def test_load_profile_camping_terms_is_dict(profiles_dir):
     """profile.terms must be a dict mapping language codes to lists."""
     profile = load_profile("camping", profiles_dir=profiles_dir)
