@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import functools
+import math
 import os
 import re
 import sys
@@ -106,6 +107,48 @@ def _normalize_country_name(value: str) -> str:
     return _country_aliases().get(_normalize_lookup_key(value), value)
 
 
+def _is_known_country(value: str) -> bool:
+    return _normalize_lookup_key(value) in _country_aliases()
+
+
+def _looks_like_street_address(value: str) -> bool:
+    return bool(re.search(r"\d", value))
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    radius_km = 6371.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * radius_km * math.asin(math.sqrt(a))
+
+
+def _extract_google_data_coords(url: str) -> list[tuple[float, float]]:
+    """Return (lat, lon) pairs embedded in a Google Maps ``/data=`` block."""
+    match = re.search(r"/data=([^?#]+)", url)
+    if not match:
+        return []
+    data = match.group(1)
+    pairs = re.findall(r"!2m2!1d([\d.-]+)!2d([\d.-]+)", data)
+    coords: list[tuple[float, float]] = []
+    for lon_s, lat_s in pairs:
+        lat, lon = float(lat_s), float(lon_s)
+        if -90 <= lat <= 90 and -180 <= lon <= 180:
+            coords.append((lat, lon))
+    return coords
+
+
+def _attach_google_data_coords(waypoints: list[dict], url: str) -> None:
+    """Merge Google-resolved coordinates into parsed waypoints when counts match."""
+    coords = _extract_google_data_coords(url)
+    if len(coords) != len(waypoints):
+        return
+    for wpt, (lat, lon) in zip(waypoints, coords, strict=True):
+        if "coord" not in wpt:
+            wpt["coord"] = (lat, lon)
+
+
 def _expand_url(url: str, session: requests.Session) -> str:
     """Follow redirects and return the final URL (used for short URLs)."""
     r = session.head(url, allow_redirects=True, timeout=15, headers={"User-Agent": USER_AGENT})
@@ -140,12 +183,15 @@ def _build_geocode_queries(name: str) -> list[str]:
         candidates.append(cleaned)
 
     if len(cleaned_parts) >= 2:
-        no_country = ", ".join(cleaned_parts[:-1])
-        if no_country:
-            candidates.append(no_country)
-        city_country = f"{cleaned_parts[0]}, {cleaned_parts[-1]}"
-        candidates.append(city_country)
-        candidates.append(cleaned_parts[0])
+        last_part = cleaned_parts[-1]
+        if _is_known_country(last_part):
+            no_country = ", ".join(cleaned_parts[:-1])
+            if no_country:
+                candidates.append(no_country)
+            city_country = f"{cleaned_parts[0]}, {last_part}"
+            candidates.append(city_country)
+        if not _looks_like_street_address(cleaned_parts[0]):
+            candidates.append(cleaned_parts[0])
 
     # Keep order stable while removing duplicates.
     seen: set[str] = set()
@@ -186,6 +232,7 @@ def parse_waypoints_from_url(url: str) -> list[dict]:
                 _add(part)
         if "destination" in qs:
             _add(qs["destination"][0])
+        _attach_google_data_coords(waypoints, url)
         return waypoints
 
     # Old-style path: /maps/dir/Part1/Part2/...
@@ -209,22 +256,43 @@ def parse_waypoints_from_url(url: str) -> list[dict]:
             result.append({"coord": _parse_coord(part)})
         else:
             result.append({"name": part})
+    _attach_google_data_coords(result, url)
     return result
 
 
-def _geocode(name: str, session: requests.Session) -> tuple[float, float]:
+def _pick_best_geocode_result(
+    results: list[dict],
+    *,
+    near: tuple[float, float] | None,
+) -> dict:
+    if not near or len(results) == 1:
+        return results[0]
+    near_lat, near_lon = near
+    return min(
+        results,
+        key=lambda row: _haversine_km(near_lat, near_lon, float(row["lat"]), float(row["lon"])),
+    )
+
+
+def _geocode(
+    name: str,
+    session: requests.Session,
+    *,
+    near: tuple[float, float] | None = None,
+) -> tuple[float, float]:
     """Forward-geocode a place name via Nominatim. Returns (lat, lon)."""
     headers = {"User-Agent": USER_AGENT}
     queries = _build_geocode_queries(name)
     for i, query in enumerate(queries):
         if i > 0:
             time.sleep(1.1)  # honour Nominatim 1 req/s policy for retries
-        params = {"q": query, "format": "jsonv2", "limit": 1}
+        params = {"q": query, "format": "jsonv2", "limit": 5 if near else 1}
         r = session.get(NOMINATIM_SEARCH_URL, params=params, headers=headers, timeout=30)
         r.raise_for_status()
         results = r.json()
         if results:
-            return float(results[0]["lat"]), float(results[0]["lon"])
+            best = _pick_best_geocode_result(results, near=near)
+            return float(best["lat"]), float(best["lon"])
 
     raise ValueError(f"Nominatim could not geocode: {name!r}")
 
@@ -237,11 +305,13 @@ def _resolve_waypoints(
     for i, wpt in enumerate(raw):
         if "coord" in wpt:
             lat, lon = wpt["coord"]
-            resolved.append((lat, lon, f"{lat:.6f},{lon:.6f}"))
+            label = wpt.get("name", f"{lat:.6f},{lon:.6f}")
+            resolved.append((lat, lon, label))
         else:
             name = wpt["name"]
             print(f"  geocoding {name!r} ...", file=sys.stderr)
-            lat, lon = _geocode(name, session)
+            near = resolved[-1][:2] if resolved else None
+            lat, lon = _geocode(name, session, near=near)
             resolved.append((lat, lon, name))
             if i < len(raw) - 1:
                 time.sleep(1.1)  # honour Nominatim 1 req/s policy
