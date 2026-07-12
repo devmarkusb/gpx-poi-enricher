@@ -10,7 +10,6 @@ or:
 from __future__ import annotations
 
 import pathlib
-import re
 import sys
 import threading
 from typing import Any
@@ -50,12 +49,20 @@ from PyQt6.QtWidgets import (
 from .enricher import enrich_gpx_file
 from .gui_profiles import ProfilesManagerTab
 from .maps_to_gpx_cli import (
+    DEFAULT_OUTPUT_STEM,
+    DEFAULT_TRACK_NAME,
     _expand_url,
     _resolve_waypoints,
     _route_osrm,
     _write_gpx,
     _write_gpx_segments,
+    apply_route_defaults,
+    is_default_output_path,
+    is_default_track_name,
     parse_waypoints_from_url,
+    preview_route_names_from_url,
+    route_names_from_waypoints,
+    shorten_label,
 )
 from .profiles import load_all_profiles
 from .route_detours import (
@@ -172,27 +179,6 @@ def _dir_row(dialog_title: str, default_dir: str = "") -> tuple[QWidget, QLineEd
     return container, edit
 
 
-def _shorten_label(label: str) -> str:
-    """Return a short city-level name from a potentially verbose address string.
-
-    Iterates comma-separated parts, strips leading postal codes, and returns
-    the first part that contains no remaining digits (i.e. looks like a place name).
-    Falls back to the postal-code-stripped first part if nothing cleaner is found.
-    """
-    parts = [p.strip() for p in label.split(",")]
-    for part in parts:
-        clean = re.sub(r"^\d[\d\s]*\s+", "", part).strip()
-        if clean and not any(c.isdigit() for c in clean):
-            return clean
-    clean = re.sub(r"^\d[\d\s]*\s+", "", parts[0]).strip()
-    return clean or parts[0]
-
-
-def _safe_filename(label: str) -> str:
-    """Sanitize a string for use as a filename component."""
-    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", label).strip(". ")
-
-
 def _mono_font(point_size: int = 9) -> QFont:
     """System monospace via style hint; avoids the non-font CSS name Monospace on macOS."""
     f = QFont()
@@ -298,6 +284,7 @@ class _SplitWorker(QThread):
 
 class _MapsWorker(QThread):
     log_message = pyqtSignal(str)
+    names_applied = pyqtSignal(str, str)  # track_name, output_path
     finished = pyqtSignal()
     error = pyqtSignal(str)
 
@@ -343,17 +330,23 @@ class _MapsWorker(QThread):
                 routes.append((waypoints, track_points))
 
             primary_wp, primary_pts = routes[0]
-            out_path = pathlib.Path(self._output)
+            track_name, out_path_str = apply_route_defaults(
+                primary_wp, self._track_name, self._output
+            )
+            out_path = pathlib.Path(out_path_str)
+            if track_name != self._track_name.strip() or out_path_str != self._output:
+                self.names_applied.emit(track_name, out_path_str)
+
+            _write_gpx(primary_pts, primary_wp, str(out_path), track_name)
+            self.log_message.emit(f"Saved primary: {out_path}")
+
             out_dir = out_path.parent
             stem = out_path.stem
-
-            _write_gpx(primary_pts, primary_wp, str(out_path), self._track_name)
-            self.log_message.emit(f"Saved primary: {out_path}")
 
             if len(routes) > 1:
                 for j, (wpts, pts) in enumerate(routes[1:], start=2):
                     alt_path = out_dir / f"{stem}-full-{j:02d}.gpx"
-                    alt_track = f"{_shorten_label(wpts[0][2])} – {_shorten_label(wpts[-1][2])}"
+                    alt_track = f"{shorten_label(wpts[0][2])} – {shorten_label(wpts[-1][2])}"
                     if alt_path.exists():
                         self.log_message.emit(
                             f"Alternate route GPX already exists, reusing: {alt_path}"
@@ -410,6 +403,27 @@ class _MapsWorker(QThread):
         finally:
             capture.flush()
             sys.stderr = old_stderr
+
+
+class _RouteNamesPreviewWorker(QThread):
+    """Geocode a Maps URL in the background to suggest output/track names."""
+
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
+
+    def __init__(self, url: str) -> None:
+        super().__init__()
+        self._url = url
+
+    def run(self) -> None:
+        session = requests.Session()
+        try:
+            names = preview_route_names_from_url(self._url, session)
+            self.finished.emit(names)
+        except Exception as exc:
+            self.error.emit(str(exc))
+        finally:
+            session.close()
 
 
 class _EasyWorker(QThread):
@@ -478,9 +492,9 @@ class _EasyWorker(QThread):
                 routes.append((waypoints, track_points))
 
             primary_wp, primary_pts = routes[0]
-            start_label = _shorten_label(primary_wp[0][2])
-            finish_label = _shorten_label(primary_wp[-1][2])
-            base_name = f"{_safe_filename(start_label)}-{_safe_filename(finish_label)}"
+            start_label, finish_label, base_name, track_name = route_names_from_waypoints(
+                primary_wp
+            )
             out_dir = pathlib.Path(self._output_dir)
             track_path = out_dir / f"{base_name}.gpx"
             track_name = f"{start_label} – {finish_label}"
@@ -496,7 +510,7 @@ class _EasyWorker(QThread):
             if len(routes) > 1:
                 for j, (wpts, pts) in enumerate(routes[1:], start=2):
                     alt_path = out_dir / f"{base_name}-full-{j:02d}.gpx"
-                    alt_track = f"{_shorten_label(wpts[0][2])} – {_shorten_label(wpts[-1][2])}"
+                    alt_track = f"{shorten_label(wpts[0][2])} – {shorten_label(wpts[-1][2])}"
                     if alt_path.exists():
                         self.log_message.emit(
                             f"Alternate route GPX already exists, reusing: {alt_path}"
@@ -1269,6 +1283,7 @@ class _MapsTab(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._worker: _MapsWorker | None = None
+        self._preview_worker: _RouteNamesPreviewWorker | None = None
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -1300,11 +1315,20 @@ class _MapsTab(QWidget):
 
         out_box = QGroupBox("Output")
         ol = QFormLayout(out_box)
-        output_w, self._output_edit = _file_row("Save Output GPX", "route.gpx", save=True)
+        output_w = QWidget()
+        output_h = QHBoxLayout(output_w)
+        output_h.setContentsMargins(0, 0, 0, 0)
+        self._output_edit = QLineEdit()
+        self._output_edit.setPlaceholderText(f"{DEFAULT_OUTPUT_STEM}.gpx")
+        self._output_browse_btn = QPushButton("Browse…")
+        self._output_browse_btn.setFixedWidth(80)
+        output_h.addWidget(self._output_edit)
+        output_h.addWidget(self._output_browse_btn)
+        self._output_browse_btn.clicked.connect(self._browse_output)
         self._mode_combo = QComboBox()
         for mode in ("driving", "cycling", "walking"):
             self._mode_combo.addItem(mode, mode)
-        self._name_edit = QLineEdit("Route")
+        self._name_edit = QLineEdit(DEFAULT_TRACK_NAME)
         ol.addRow("Output GPX:", output_w)
         ol.addRow("Transport mode:", self._mode_combo)
         ol.addRow("Primary track name:", self._name_edit)
@@ -1323,6 +1347,48 @@ class _MapsTab(QWidget):
         self._log = _log_widget()
         root.addWidget(self._log, 1)
 
+    def _browse_output(self) -> None:
+        url = self._url_edit.text().strip()
+        if not url:
+            self._open_output_dialog(f"{DEFAULT_OUTPUT_STEM}.gpx")
+            return
+        self._output_browse_btn.setEnabled(False)
+        self._preview_worker = _RouteNamesPreviewWorker(url)
+        self._preview_worker.finished.connect(self._on_preview_names)
+        self._preview_worker.error.connect(self._on_preview_error)
+        self._preview_worker.finished.connect(lambda _: self._output_browse_btn.setEnabled(True))
+        self._preview_worker.error.connect(lambda _: self._output_browse_btn.setEnabled(True))
+        self._preview_worker.start()
+
+    def _on_preview_names(self, names: dict) -> None:
+        basename = names.get("output_basename", f"{DEFAULT_OUTPUT_STEM}.gpx")
+        if is_default_track_name(self._name_edit.text()):
+            self._name_edit.setText(names.get("track_name", DEFAULT_TRACK_NAME))
+        self._open_output_dialog(basename)
+
+    def _on_preview_error(self, msg: str) -> None:
+        QMessageBox.warning(
+            self,
+            "Could not suggest filename",
+            f"Using default filename instead.\n\n{msg}",
+        )
+        self._open_output_dialog(f"{DEFAULT_OUTPUT_STEM}.gpx")
+
+    def _open_output_dialog(self, basename: str) -> None:
+        current = self._output_edit.text().strip()
+        if current:
+            start = str(pathlib.Path(current).parent / basename)
+        else:
+            start = str(pathlib.Path.home() / basename)
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Output GPX",
+            start,
+            "GPX files (*.gpx);;All files (*)",
+        )
+        if path:
+            self._output_edit.setText(path)
+
     def _run(self) -> None:
         primary = self._url_edit.text().strip()
         extra_lines = [
@@ -1331,7 +1397,7 @@ class _MapsTab(QWidget):
         urls = [primary, *extra_lines]
         out = self._output_edit.text().strip()
         mode = self._mode_combo.currentData()
-        name = self._name_edit.text().strip() or "Route"
+        name = self._name_edit.text().strip() or DEFAULT_TRACK_NAME
 
         if not primary:
             QMessageBox.warning(self, "URL required", "Please enter a primary Google Maps URL.")
@@ -1346,9 +1412,16 @@ class _MapsTab(QWidget):
 
         self._worker = _MapsWorker(urls, out, mode, name)
         self._worker.log_message.connect(lambda t: _append_log(self._log, t))
+        self._worker.names_applied.connect(self._on_names_applied)
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.start()
+
+    def _on_names_applied(self, track_name: str, output_path: str) -> None:
+        if is_default_track_name(self._name_edit.text()):
+            self._name_edit.setText(track_name)
+        if is_default_output_path(self._output_edit.text()):
+            self._output_edit.setText(output_path)
 
     def _on_done(self) -> None:
         self._progress.setRange(0, 1)
@@ -1373,7 +1446,7 @@ class _MapsTab(QWidget):
                 if self._mode_combo.itemData(i) == mode:
                     self._mode_combo.setCurrentIndex(i)
                     break
-            self._name_edit.setText(s.value("track_name", "Route", type=str))
+            self._name_edit.setText(s.value("track_name", DEFAULT_TRACK_NAME, type=str))
         finally:
             s.endGroup()
 

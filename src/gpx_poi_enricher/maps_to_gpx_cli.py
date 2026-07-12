@@ -14,6 +14,7 @@ import argparse
 import functools
 import math
 import os
+import pathlib
 import re
 import sys
 import time
@@ -37,6 +38,90 @@ NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
 OSRM_DEFAULT_BASE = "https://router.project-osrm.org/route/v1"
 # Kept as a module attribute so callers can monkey-patch (legacy Android bridge).
 OSRM_BASE_URL = OSRM_DEFAULT_BASE
+
+DEFAULT_TRACK_NAME = "Route"
+DEFAULT_OUTPUT_STEM = "route"
+
+
+def shorten_label(label: str) -> str:
+    """Return a short city-level name from a potentially verbose address string."""
+    parts = [p.strip() for p in label.split(",")]
+    for part in parts:
+        clean = re.sub(r"^\d[\d\s]*\s+", "", part).strip()
+        if clean and not any(c.isdigit() for c in clean):
+            return clean
+    clean = re.sub(r"^\d[\d\s]*\s+", "", parts[0]).strip()
+    return clean or parts[0]
+
+
+def safe_filename_component(label: str) -> str:
+    """Sanitize a string for use as a filename component."""
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", label).strip(". ")
+
+
+def is_default_track_name(name: str | None) -> bool:
+    text = (name or "").strip()
+    return not text or text == DEFAULT_TRACK_NAME
+
+
+def is_default_output_path(path: str) -> bool:
+    if not (path or "").strip():
+        return True
+    return pathlib.Path(path).stem.casefold() == DEFAULT_OUTPUT_STEM
+
+
+def route_names_from_waypoints(
+    waypoints: list[tuple[float, float, str]],
+) -> tuple[str, str, str, str]:
+    """Return ``(start_label, finish_label, file_stem, track_name)``."""
+    start_label = shorten_label(waypoints[0][2])
+    finish_label = shorten_label(waypoints[-1][2])
+    file_stem = f"{safe_filename_component(start_label)}-{safe_filename_component(finish_label)}"
+    track_name = f"{start_label} – {finish_label}"
+    return start_label, finish_label, file_stem, track_name
+
+
+def apply_route_defaults(
+    waypoints: list[tuple[float, float, str]],
+    track_name: str,
+    output_path: str,
+) -> tuple[str, str]:
+    """Use start/finish labels for track name and output stem when still at GUI defaults."""
+    _, _, file_stem, auto_track = route_names_from_waypoints(waypoints)
+    resolved_track = auto_track if is_default_track_name(track_name) else track_name.strip()
+    out = pathlib.Path(output_path)
+    if is_default_output_path(output_path):
+        resolved_output = str(out.parent / f"{file_stem}.gpx")
+    else:
+        resolved_output = output_path
+    return resolved_track, resolved_output
+
+
+def preview_route_names_from_url(
+    url: str,
+    session: requests.Session | None = None,
+) -> dict[str, str]:
+    """Parse + geocode a Maps URL; return suggested track/filename labels (no routing)."""
+    owns_session = session is None
+    if owns_session:
+        session = requests.Session()
+    try:
+        if "goo.gl" in url or "maps.app" in url:
+            url = _expand_url(url, session)
+        raw = parse_waypoints_from_url(url)
+        if len(raw) < 2:
+            raise ValueError("Need at least 2 waypoints (origin + destination).")
+        waypoints = _resolve_waypoints(raw, session)
+        start_label, finish_label, file_stem, track_name = route_names_from_waypoints(waypoints)
+        return {
+            "track_name": track_name,
+            "output_basename": f"{file_stem}.gpx",
+            "start": start_label,
+            "finish": finish_label,
+        }
+    finally:
+        if owns_session:
+            session.close()
 
 
 def _effective_osrm_base_url(explicit: str | None = None) -> str:
@@ -493,9 +578,10 @@ def main() -> None:
 
     print(f"  {len(track_points)} track point(s) returned.", file=sys.stderr)
 
-    # 5. Write GPX
-    _write_gpx(track_points, waypoints, args.output_gpx, args.name)
-    print(f"Saved: {args.output_gpx}", file=sys.stderr)
+    # 5. Write GPX (auto-name from start/finish when still at CLI defaults)
+    track_name, output_gpx = apply_route_defaults(waypoints, args.name, args.output_gpx)
+    _write_gpx(track_points, waypoints, output_gpx, track_name)
+    print(f"Saved: {output_gpx}", file=sys.stderr)
 
 
 if __name__ == "__main__":

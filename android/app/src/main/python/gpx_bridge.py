@@ -6,7 +6,6 @@ Called via Chaquopy's Java/Python interop. All file paths are absolute strings
 
 import json
 import pathlib
-import re
 import sys
 import threading
 
@@ -19,7 +18,11 @@ from gpx_poi_enricher.maps_to_gpx_cli import (
     _route_osrm,
     _write_gpx,
     _write_gpx_segments,
+    apply_route_defaults,
     parse_waypoints_from_url,
+    preview_route_names_from_url,
+    route_names_from_waypoints,
+    shorten_label,
 )
 from gpx_poi_enricher.poi_catalog import catalog_to_json, save_catalog_entry
 from gpx_poi_enricher.profiles import (
@@ -181,7 +184,7 @@ def split(input_path: str, output_path: str, segments: int, log_callback) -> Non
             sys.stderr = old
 
 
-def maps_to_gpx(url: str, output_path: str, mode: str, track_name: str, log_callback) -> None:
+def maps_to_gpx(url: str, output_path: str, mode: str, track_name: str, log_callback) -> str:
     with _stderr_lock:
         old = sys.stderr
         sys.stderr = _LogStream(log_callback)
@@ -193,34 +196,36 @@ def maps_to_gpx(url: str, output_path: str, mode: str, track_name: str, log_call
             raw = parse_waypoints_from_url(url)
             sys.stderr.write(f"Found {len(raw)} waypoints.\n")
             waypoints = _resolve_waypoints(raw, session)
+            track_name, output_path = apply_route_defaults(waypoints, track_name, output_path)
             sys.stderr.write(f"Routing via OSRM ({mode})...\n")
             track_points = _route_osrm(waypoints, mode, session)
             sys.stderr.write(f"  {len(track_points)} track points returned.\n")
             _write_gpx(track_points, waypoints, output_path, track_name)
+            _, _, file_stem, _ = route_names_from_waypoints(waypoints)
+            return json.dumps(
+                {
+                    "track_name": track_name,
+                    "output_basename": f"{file_stem}.gpx",
+                }
+            )
+        finally:
+            sys.stderr.flush()
+            sys.stderr = old
+
+
+def preview_route_names(url: str, log_callback) -> str:
+    """Parse + geocode a Maps URL and return suggested track/filename labels (no routing)."""
+    with _stderr_lock:
+        old = sys.stderr
+        sys.stderr = _LogStream(log_callback)
+        try:
+            return json.dumps(preview_route_names_from_url(url))
         finally:
             sys.stderr.flush()
             sys.stderr = old
 
 
 # ── Easy mode helpers ─────────────────────────────────────────────────────────
-
-
-def _shorten_label(label: str) -> str:
-    """Extract a short city-level name from a verbose address string."""
-    parts = [p.strip() for p in label.split(",")]
-    for part in parts:
-        clean = re.sub(r"^\d[\d\s]*\s+", "", part).strip()
-        if clean and not any(c.isdigit() for c in clean):
-            return clean
-    clean = re.sub(r"^\d[\d\s]*\s+", "", parts[0]).strip()
-    return clean or parts[0]
-
-
-def _safe_filename(label: str) -> str:
-    """Sanitize a string for use as a filename component."""
-    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", label).strip(". ")
-
-
 def easy_generate(
     primary_url: str,
     extras_multiline: str,
@@ -286,13 +291,12 @@ def easy_generate(
                 routes.append((waypoints, track_points))
 
             primary_wp, primary_pts = routes[0]
-            start_label = _shorten_label(primary_wp[0][2])
-            finish_label = _shorten_label(primary_wp[-1][2])
-            base_name = f"{_safe_filename(start_label)}-{_safe_filename(finish_label)}"
+            start_label, finish_label, base_name, track_name = route_names_from_waypoints(
+                primary_wp
+            )
             out_dir = pathlib.Path(output_dir)
             track_path = str(out_dir / f"{base_name}.gpx")
             poi_path = str(out_dir / f"{base_name}-{profile_id}.gpx")
-            track_name = f"{start_label} – {finish_label}"
 
             track_reused = False
             reused_paths: list[str] = []
@@ -310,7 +314,7 @@ def easy_generate(
             if len(routes) > 1:
                 for j, (wpts, pts) in enumerate(routes[1:], start=2):
                     alt_path = out_dir / f"{base_name}-full-{j:02d}.gpx"
-                    alt_track = f"{_shorten_label(wpts[0][2])} – {_shorten_label(wpts[-1][2])}"
+                    alt_track = f"{shorten_label(wpts[0][2])} – {shorten_label(wpts[-1][2])}"
                     alt_path_str = str(alt_path)
                     alternate_full_paths.append(alt_path_str)
                     if alt_path.exists():

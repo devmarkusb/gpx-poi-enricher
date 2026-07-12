@@ -6,12 +6,20 @@ import requests
 import responses as resp_lib
 
 from gpx_poi_enricher.maps_to_gpx_cli import (
+    DEFAULT_OUTPUT_STEM,
+    DEFAULT_TRACK_NAME,
     NOMINATIM_SEARCH_URL,
     _build_geocode_queries,
     _extract_google_data_coords,
     _geocode,
     _pick_best_geocode_result,
+    apply_route_defaults,
+    is_default_output_path,
+    is_default_track_name,
     parse_waypoints_from_url,
+    preview_route_names_from_url,
+    route_names_from_waypoints,
+    shorten_label,
 )
 
 
@@ -110,3 +118,75 @@ def test_geocode_prefers_result_near_previous_waypoint():
 
     assert (lat, lon) == (50.992031, 13.7770268)
     assert resp_lib.calls[0].request.params["limit"] == "5"
+
+
+def test_shorten_label_prefers_city_over_postal_street():
+    assert shorten_label("Neuer Weg 2C, 01239 Dresden-Prohlis") == "Dresden-Prohlis"
+    assert shorten_label("Paris, Île-de-France, France") == "Paris"
+
+
+def test_route_names_from_waypoints_builds_start_finish_labels():
+    waypoints = [
+        (48.8566, 2.3522, "Paris, Île-de-France, France"),
+        (45.7640, 4.8357, "Lyon, Auvergne-Rhône-Alpes, France"),
+    ]
+    start, finish, stem, track = route_names_from_waypoints(waypoints)
+
+    assert start == "Paris"
+    assert finish == "Lyon"
+    assert stem == "Paris-Lyon"
+    assert track == "Paris – Lyon"
+
+
+def test_apply_route_defaults_only_when_still_at_gui_defaults():
+    waypoints = [
+        (48.8566, 2.3522, "Paris, France"),
+        (45.7640, 4.8357, "Lyon, France"),
+    ]
+
+    track, out = apply_route_defaults(waypoints, DEFAULT_TRACK_NAME, "/tmp/route.gpx")
+    assert track == "Paris – Lyon"
+    assert out == "/tmp/Paris-Lyon.gpx"
+
+    custom_track, custom_out = apply_route_defaults(waypoints, "My trip", "/tmp/custom.gpx")
+    assert custom_track == "My trip"
+    assert custom_out == "/tmp/custom.gpx"
+
+
+def test_default_sentinels():
+    assert is_default_track_name("Route")
+    assert is_default_track_name("")
+    assert not is_default_track_name("Paris – Lyon")
+    assert is_default_output_path("route.gpx")
+    assert is_default_output_path("")
+    assert not is_default_output_path("/tmp/Paris-Lyon.gpx")
+    assert DEFAULT_OUTPUT_STEM == "route"
+
+
+@resp_lib.activate
+def test_preview_route_names_from_url_geocodes_primary_endpoints():
+    resp_lib.add(
+        resp_lib.GET,
+        NOMINATIM_SEARCH_URL,
+        json=[{"lat": "48.8566", "lon": "2.3522"}],
+        status=200,
+    )
+    resp_lib.add(
+        resp_lib.GET,
+        NOMINATIM_SEARCH_URL,
+        json=[{"lat": "45.7640", "lon": "4.8357"}],
+        status=200,
+    )
+
+    with patch("gpx_poi_enricher.maps_to_gpx_cli.time.sleep"):
+        names = preview_route_names_from_url(
+            "https://www.google.com/maps/dir/Paris/Lyon/",
+            _session(),
+        )
+
+    assert names == {
+        "track_name": "Paris – Lyon",
+        "output_basename": "Paris-Lyon.gpx",
+        "start": "Paris",
+        "finish": "Lyon",
+    }

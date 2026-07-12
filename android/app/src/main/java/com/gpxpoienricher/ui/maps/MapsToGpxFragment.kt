@@ -51,6 +51,14 @@ class MapsToGpxFragment : Fragment() {
             binding.outputFileName.text = name ?: "No file selected"
         }
 
+        viewModel.appliedTrackName.observe(viewLifecycleOwner) { name ->
+            name ?: return@observe
+            val current = binding.editTrackName.text?.toString()?.trim().orEmpty()
+            if (current.isEmpty() || current == MapsToGpxViewModel.DEFAULT_TRACK_NAME) {
+                binding.editTrackName.setText(name)
+            }
+        }
+
         viewModel.isRunning.observe(viewLifecycleOwner) { running ->
             binding.btnRun.isEnabled = !running
             binding.btnCancel.isEnabled = running
@@ -73,7 +81,10 @@ class MapsToGpxFragment : Fragment() {
         }
 
         binding.btnBrowseOutput.setOnClickListener {
-            createOutput.launch("route.gpx")
+            val url = binding.editUrl.text?.toString().orEmpty()
+            viewModel.previewOutputBasename(url) { suggested ->
+                createOutput.launch(suggested)
+            }
         }
 
         binding.btnRun.setOnClickListener {
@@ -83,7 +94,8 @@ class MapsToGpxFragment : Fragment() {
                 binding.radioWalking.id -> "walking"
                 else -> "driving"
             }
-            val trackName = binding.editTrackName.text?.toString()?.takeIf { it.isNotBlank() } ?: "Route"
+            val trackName = binding.editTrackName.text?.toString()?.takeIf { it.isNotBlank() }
+                ?: MapsToGpxViewModel.DEFAULT_TRACK_NAME
             viewModel.run(url, mode, trackName)
         }
 
@@ -102,7 +114,7 @@ class MapsToGpxFragment : Fragment() {
                 requireContext(),
                 b.editUrl.text?.toString() ?: "",
                 mode,
-                b.editTrackName.text?.toString() ?: "Route",
+                b.editTrackName.text?.toString() ?: MapsToGpxViewModel.DEFAULT_TRACK_NAME,
                 viewModel.snapshotOutputUri()?.toString(),
             )
         }
