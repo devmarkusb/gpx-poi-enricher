@@ -14,7 +14,7 @@ from gpx_poi_enricher.overpass import (
     element_latlon,
     extract_candidates,
 )
-from gpx_poi_enricher.profiles import SearchProfile
+from gpx_poi_enricher.profiles import SearchProfile, load_profile
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -298,6 +298,17 @@ def test_build_overpass_queries_and_not_tag_extra_condition():
     assert '"leisure"="swimming_pool"' in query
     assert '"access"!="private"' in query
     assert '"access"!="no"' in query
+
+
+def test_build_overpass_queries_beach_bathing_place_requires_extra_tags(profiles_dir):
+    """Beach profile must not emit bare leisure=bathing_place selectors."""
+    profile = load_profile("beach", profiles_dir=profiles_dir)
+    pts = [(48.0, 11.0)]
+    query = build_overpass_queries(pts, max_km=5.0, profile=profile, country_code="EN")[0]
+    assert '["leisure"="bathing_place"];' not in query
+    assert '"leisure"="bathing_place"' in query
+    assert '"water"="lake"' in query
+    assert '"natural"="beach"' in query
 
 
 def test_build_overpass_queries_ends_with_out_center_tags():
