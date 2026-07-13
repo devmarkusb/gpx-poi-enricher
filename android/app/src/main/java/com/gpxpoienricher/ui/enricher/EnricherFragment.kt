@@ -14,6 +14,7 @@ import androidx.fragment.app.viewModels
 import com.google.android.material.snackbar.Snackbar
 import com.gpxpoienricher.data.GuiStatePreferences
 import com.gpxpoienricher.databinding.FragmentEnricherBinding
+import com.gpxpoienricher.R
 
 class EnricherFragment : Fragment() {
 
@@ -104,6 +105,12 @@ class EnricherFragment : Fragment() {
                 Snackbar.make(binding.root, it, Snackbar.LENGTH_LONG).show()
                 viewModel.clearSnackbar()
             }
+        }
+
+        viewModel.canResume.observe(viewLifecycleOwner) { resume ->
+            binding.btnRun.text = getString(
+                if (resume) R.string.btn_resume_enrichment else R.string.btn_run,
+            )
         }
 
         binding.btnBatterySettings.setOnClickListener {

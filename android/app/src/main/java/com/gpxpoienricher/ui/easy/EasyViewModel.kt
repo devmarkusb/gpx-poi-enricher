@@ -18,6 +18,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import org.json.JSONArray
 
 class EasyViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -36,11 +37,23 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
         val milestonePaths: List<String> = emptyList(),
     )
 
+    private data class InterruptedState(
+        val tracksToEnrich: List<String>,
+        val trackIndex: Int,
+        val profileId: String,
+        val outputDir: String,
+        val message: String,
+        val priorResult: Result?,
+    )
+
     private val _profiles = MutableLiveData<List<ProfileInfo>>(emptyList())
     val profiles: LiveData<List<ProfileInfo>> = _profiles
 
     private val _isRunning = MutableLiveData(false)
     val isRunning: LiveData<Boolean> = _isRunning
+
+    private val _canResume = MutableLiveData(false)
+    val canResume: LiveData<Boolean> = _canResume
 
     private val _logLines = MutableLiveData<MutableList<String>>(mutableListOf())
     val logLines: LiveData<MutableList<String>> = _logLines
@@ -52,6 +65,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
     val snackbar: LiveData<String?> = _snackbar
 
     private var job: Job? = null
+    private var interrupted: InterruptedState? = null
 
     init {
         reloadProfiles()
@@ -77,6 +91,11 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
         milestoneParts: Int = 0,
         legacyStorageGranted: Boolean = false,
     ) {
+        if (interrupted != null) {
+            resume(legacyStorageGranted)
+            return
+        }
+
         val url = primaryUrl.trim()
         if (url.isBlank()) { _snackbar.value = "Enter a Google Maps URL"; return }
         val profile = _profiles.value?.getOrNull(profileIndex)
@@ -86,6 +105,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
         job = viewModelScope.launch {
             _isRunning.value = true
             _result.value = null
+            _canResume.value = false
             val logs = mutableListOf<String>()
             _logLines.value = logs
 
@@ -111,87 +131,20 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                         parts,
                     ).toString()
 
-                    val obj = org.json.JSONObject(resultJson)
-                    if (obj.optBoolean("cancelled", false)) return@withContext
-
-                    val alternatesArr = obj.optJSONArray("alternate_full_paths")
-                    val alternates = buildList {
-                        if (alternatesArr != null) {
-                            for (i in 0 until alternatesArr.length()) {
-                                add(alternatesArr.getString(i))
-                            }
-                        }
-                    }
-                    val detoursArr = obj.optJSONArray("detour_results")
-                    val detours = buildList {
-                        if (detoursArr != null) {
-                            for (i in 0 until detoursArr.length()) {
-                                val d = detoursArr.getJSONObject(i)
-                                add(
-                                    DetourPoi(
-                                        trackPath = d.getString("track_path"),
-                                        poiPath = d.getString("poi_path"),
-                                        poiCount = d.getInt("poi_count"),
-                                    ),
-                                )
-                            }
-                        }
-                    }
-                    val milestonesArr = obj.optJSONArray("milestone_paths")
-                    val milestones = buildList {
-                        if (milestonesArr != null) {
-                            for (i in 0 until milestonesArr.length()) {
-                                add(milestonesArr.getString(i))
-                            }
-                        }
-                    }
-                    val reusedArr = obj.optJSONArray("reused_paths")
-                    val reusedPaths = buildSet {
-                        if (reusedArr != null) {
-                            for (i in 0 until reusedArr.length()) {
-                                add(reusedArr.getString(i))
-                            }
-                        }
-                    }
-                    val res = Result(
-                        trackPath = obj.getString("track_path"),
-                        poiPath = obj.getString("poi_path"),
-                        start = obj.getString("start"),
-                        finish = obj.getString("finish"),
-                        poiCount = obj.getInt("poi_count"),
-                        trackReused = obj.getBoolean("track_reused"),
-                        alternateFullPaths = alternates,
-                        detourResults = detours,
-                        milestonePaths = milestones,
+                    handleEasyJson(
+                        ctx,
+                        resultJson,
+                        canExportPublic,
+                        ::log,
+                        onInterrupted = { state ->
+                            interrupted = state
+                            _canResume.postValue(true)
+                            state.priorResult?.let { _result.postValue(it) }
+                            _snackbar.postValue(
+                                "Interrupted — tap Resume enrichment to continue. ${state.message}",
+                            )
+                        },
                     )
-                    var resOut = res
-                    var exportOk = false
-                    if (canExportPublic) {
-                        try {
-                            resOut = remapResultPathsToDownloads(ctx, res, reusedPaths)
-                            exportOk = true
-                            log("Copied GPX files to Downloads → ${GpxDownloadsExporter.FOLDER_NAME}.")
-                        } catch (e: Exception) {
-                            log("WARN: export to Downloads failed: ${e.message}")
-                        }
-                    }
-                    _result.postValue(resOut)
-                    val note = if (res.trackReused) "Track reused. " else ""
-                    val extraPois = res.detourResults.sumOf { it.poiCount }
-                    val total = res.poiCount + extraPois
-                    val baseDone =
-                        if (res.detourResults.isEmpty()) {
-                            "Done! ${note}$total POI(s) found."
-                        } else {
-                            "Done! ${note}$total POI(s) " +
-                                "(${res.poiCount} primary + $extraPois detour segment(s))."
-                        }
-                    val suffix = when {
-                        exportOk -> " Saved to Downloads → ${GpxDownloadsExporter.FOLDER_NAME}."
-                        canExportPublic -> " ${ctx.getString(R.string.snackbar_export_downloads_failed)}"
-                        else -> ""
-                    }
-                    _snackbar.postValue(baseDone + suffix)
                 }
             } catch (e: CancellationException) {
                 log("Cancelled.")
@@ -202,6 +155,218 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                 _isRunning.value = false
             }
         }
+    }
+
+    private fun resume(legacyStorageGranted: Boolean) {
+        val state = interrupted ?: return
+
+        job?.cancel()
+        job = viewModelScope.launch {
+            _isRunning.value = true
+            val logs = _logLines.value ?: mutableListOf()
+            _logLines.value = logs
+
+            fun log(msg: String) { logs.add(msg); _logLines.postValue(ArrayList(logs)) }
+
+            try {
+                withContext(Dispatchers.IO) {
+                    val ctx = getApplication<Application>()
+                    val canExportPublic =
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q || legacyStorageGranted
+                    log("--- Resume ---")
+
+                    val tracksJson = JSONArray(state.tracksToEnrich).toString()
+                    val resultJson = Python.getInstance().getModule("gpx_bridge").callAttr(
+                        "easy_resume_enrichment",
+                        state.profileId,
+                        GpxApp.extractProfiles().absolutePath,
+                        state.outputDir,
+                        tracksJson,
+                        state.trackIndex,
+                        LogCallback(::log),
+                    ).toString()
+
+                    handleEasyJson(
+                        ctx,
+                        resultJson,
+                        canExportPublic,
+                        ::log,
+                        prior = state.priorResult,
+                        onInterrupted = { newState ->
+                            interrupted = newState
+                            _canResume.postValue(true)
+                            mergeAndPostResult(newState.priorResult ?: state.priorResult, newState)
+                            _snackbar.postValue(
+                                "Interrupted again — tap Resume enrichment. ${newState.message}",
+                            )
+                        },
+                    )
+                }
+            } catch (e: CancellationException) {
+                log("Cancelled.")
+            } catch (e: Exception) {
+                log("ERROR: ${e.message}")
+                _snackbar.postValue("Error: ${e.message}")
+            } finally {
+                _isRunning.value = false
+            }
+        }
+    }
+
+    private fun handleEasyJson(
+        ctx: Application,
+        resultJson: String,
+        canExportPublic: Boolean,
+        log: (String) -> Unit,
+        prior: Result? = null,
+        onInterrupted: (InterruptedState) -> Unit,
+    ) {
+        val obj = org.json.JSONObject(resultJson)
+        if (obj.optBoolean("cancelled", false)) return
+
+        if (obj.optBoolean("interrupted", false)) {
+            val tracksArr = obj.getJSONArray("tracks_to_enrich")
+            val tracks = buildList {
+                for (i in 0 until tracksArr.length()) add(tracksArr.getString(i))
+            }
+            onInterrupted(
+                InterruptedState(
+                    tracksToEnrich = tracks,
+                    trackIndex = obj.getInt("track_index"),
+                    profileId = obj.getString("profile_id"),
+                    outputDir = obj.getString("output_dir"),
+                    message = obj.optString("message", "Enrichment interrupted."),
+                    priorResult = prior ?: buildPartialResult(obj),
+                ),
+            )
+            return
+        }
+
+        interrupted = null
+        _canResume.postValue(false)
+
+        val alternatesArr = obj.optJSONArray("alternate_full_paths")
+        val alternates = buildList {
+            if (alternatesArr != null) {
+                for (i in 0 until alternatesArr.length()) add(alternatesArr.getString(i))
+            }
+        }
+        val detoursArr = obj.optJSONArray("detour_results")
+        val detours = buildList {
+            if (detoursArr != null) {
+                for (i in 0 until detoursArr.length()) {
+                    val d = detoursArr.getJSONObject(i)
+                    add(
+                        DetourPoi(
+                            trackPath = d.getString("track_path"),
+                            poiPath = d.getString("poi_path"),
+                            poiCount = d.getInt("poi_count"),
+                        ),
+                    )
+                }
+            }
+        }
+        val milestonesArr = obj.optJSONArray("milestone_paths")
+        val milestones = buildList {
+            if (milestonesArr != null) {
+                for (i in 0 until milestonesArr.length()) add(milestonesArr.getString(i))
+            }
+        }
+        val reusedArr = obj.optJSONArray("reused_paths")
+        val reusedPaths = buildSet {
+            if (reusedArr != null) {
+                for (i in 0 until reusedArr.length()) add(reusedArr.getString(i))
+            }
+        }
+
+        val res = if (obj.has("start")) {
+            Result(
+                trackPath = obj.getString("track_path"),
+                poiPath = obj.getString("poi_path"),
+                start = obj.getString("start"),
+                finish = obj.getString("finish"),
+                poiCount = obj.getInt("poi_count"),
+                trackReused = obj.optBoolean("track_reused", false),
+                alternateFullPaths = alternates.ifEmpty { prior?.alternateFullPaths.orEmpty() },
+                detourResults = detours.ifEmpty { prior?.detourResults.orEmpty() },
+                milestonePaths = milestones.ifEmpty { prior?.milestonePaths.orEmpty() },
+            )
+        } else {
+            mergeResumeResult(prior, obj, detours)
+        }
+
+        var resOut = res
+        var exportOk = false
+        if (canExportPublic) {
+            try {
+                resOut = remapResultPathsToDownloads(ctx, res, reusedPaths)
+                exportOk = true
+                log("Copied GPX files to Downloads → ${GpxDownloadsExporter.FOLDER_NAME}.")
+            } catch (e: Exception) {
+                log("WARN: export to Downloads failed: ${e.message}")
+            }
+        }
+        _result.postValue(resOut)
+        val note = if (res.trackReused) "Track reused. " else ""
+        val extraPois = res.detourResults.sumOf { it.poiCount }
+        val total = res.poiCount + extraPois
+        val baseDone =
+            if (res.detourResults.isEmpty()) {
+                "Done! ${note}$total POI(s) found."
+            } else {
+                "Done! ${note}$total POI(s) " +
+                    "(${res.poiCount} primary + $extraPois detour segment(s))."
+            }
+        val suffix = when {
+            exportOk -> " Saved to Downloads → ${GpxDownloadsExporter.FOLDER_NAME}."
+            canExportPublic -> " ${ctx.getString(R.string.snackbar_export_downloads_failed)}"
+            else -> ""
+        }
+        _snackbar.postValue(baseDone + suffix)
+    }
+
+    private fun buildPartialResult(obj: org.json.JSONObject): Result? {
+        if (!obj.has("track_path")) return null
+        val alternatesArr = obj.optJSONArray("alternate_full_paths")
+        val alternates = buildList {
+            if (alternatesArr != null) {
+                for (i in 0 until alternatesArr.length()) add(alternatesArr.getString(i))
+            }
+        }
+        val milestonesArr = obj.optJSONArray("milestone_paths")
+        val milestones = buildList {
+            if (milestonesArr != null) {
+                for (i in 0 until milestonesArr.length()) add(milestonesArr.getString(i))
+            }
+        }
+        return Result(
+            trackPath = obj.getString("track_path"),
+            poiPath = obj.getString("poi_path"),
+            start = obj.optString("start", ""),
+            finish = obj.optString("finish", ""),
+            poiCount = 0,
+            trackReused = obj.optBoolean("track_reused", false),
+            alternateFullPaths = alternates,
+            milestonePaths = milestones,
+        )
+    }
+
+    private fun mergeResumeResult(
+        prior: Result?,
+        obj: org.json.JSONObject,
+        detours: List<DetourPoi>,
+    ): Result {
+        checkNotNull(prior) { "Resume success requires prior result context" }
+        return prior.copy(
+            poiPath = obj.getString("poi_path"),
+            poiCount = obj.getInt("poi_count"),
+            detourResults = detours.ifEmpty { prior.detourResults },
+        )
+    }
+
+    private fun mergeAndPostResult(prior: Result?, state: InterruptedState) {
+        val partial = prior ?: state.priorResult ?: return
+        _result.postValue(partial)
     }
 
     fun cancel() {

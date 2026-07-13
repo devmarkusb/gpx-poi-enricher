@@ -14,7 +14,8 @@ from unittest.mock import patch
 import pytest
 import responses as resp_lib
 
-from gpx_poi_enricher.enricher import enrich_gpx_file, enrich_track
+from gpx_poi_enricher.enrich_checkpoint import has_checkpoint
+from gpx_poi_enricher.enricher import EnrichInterrupted, enrich_gpx_file, enrich_track
 from gpx_poi_enricher.geocoding import NOMINATIM_URL
 from gpx_poi_enricher.gpx_utils import GPX_NS
 from gpx_poi_enricher.overpass import OVERPASS_URLS
@@ -572,3 +573,66 @@ def test_enrich_gpx_file_checkpoint_each_batch_no_stale_tmp(
     tree = ET.parse(str(output_path))
     wpts = tree.getroot().findall(f"{{{GPX_NS}}}wpt")
     assert len(wpts) >= 1
+
+
+@resp_lib.activate
+def test_enrich_gpx_file_resume_skips_completed_batches(sample_gpx_path, tmp_path, profiles_dir):
+    """After a checkpointed failure, resume continues without re-running earlier batches."""
+    for _ in range(20):
+        resp_lib.add(resp_lib.GET, NOMINATIM_URL, json=_nominatim_json("de"), status=200)
+    response = _overpass_response_with_campsite()
+    calls: list[int] = []
+
+    def _query_overpass(*_args, **_kwargs):
+        calls.append(1)
+        if len(calls) == 3:
+            raise RuntimeError("Overpass busy")
+        return response
+
+    output_path = tmp_path / "out.gpx"
+    enrich_kw = {
+        "progress_interval": 0,
+        "checkpoint_each_batch": True,
+        "early_cancel_if_no_pois": False,
+        "batch_size": 2,
+        "sample_km": 0.001,
+    }
+
+    with (
+        patch("gpx_poi_enricher.geocoding.time.sleep"),
+        patch("gpx_poi_enricher.enricher.time.sleep"),
+        patch("gpx_poi_enricher.enricher.query_overpass", side_effect=_query_overpass),
+    ):
+        with pytest.raises(EnrichInterrupted):
+            enrich_gpx_file(
+                sample_gpx_path,
+                str(output_path),
+                profile_id="camping",
+                profiles_dir=profiles_dir,
+                **enrich_kw,
+            )
+
+    assert has_checkpoint(output_path)
+    assert output_path.exists()
+    calls_before_resume = len(calls)
+
+    with (
+        patch("gpx_poi_enricher.geocoding.time.sleep"),
+        patch("gpx_poi_enricher.enricher.time.sleep"),
+        patch(
+            "gpx_poi_enricher.enricher.query_overpass",
+            side_effect=lambda *_a, **_k: (calls.append(1) or response),
+        ),
+    ):
+        items = enrich_gpx_file(
+            sample_gpx_path,
+            str(output_path),
+            profile_id="camping",
+            profiles_dir=profiles_dir,
+            resume=True,
+            **enrich_kw,
+        )
+
+    assert len(items) >= 1
+    assert not has_checkpoint(output_path)
+    assert len(calls) > calls_before_resume

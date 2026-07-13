@@ -141,6 +141,12 @@ class EasyFragment : Fragment() {
             }
         }
 
+        vm.canResume.observe(viewLifecycleOwner) { resume ->
+            binding.btnGenerate.text = getString(
+                if (resume) R.string.btn_resume_enrichment else R.string.btn_generate,
+            )
+        }
+
         binding.btnBatterySettings.setOnClickListener {
             startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
         }

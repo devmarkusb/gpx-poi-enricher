@@ -17,8 +17,19 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.security.MessageDigest
 
 class EnricherViewModel(app: Application) : AndroidViewModel(app) {
+
+    private data class ResumeState(
+        val inputWorkPath: String,
+        val outputWorkPath: String,
+        val profileId: String,
+        val outputUri: Uri,
+        val maxKm: Double?,
+        val sampleKm: Double?,
+        val message: String,
+    )
 
     private val _profiles = MutableLiveData<List<ProfileInfo>>(emptyList())
     val profiles: LiveData<List<ProfileInfo>> = _profiles
@@ -38,6 +49,9 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
     private val _isRunning = MutableLiveData(false)
     val isRunning: LiveData<Boolean> = _isRunning
 
+    private val _canResume = MutableLiveData(false)
+    val canResume: LiveData<Boolean> = _canResume
+
     private val _logLines = MutableLiveData<MutableList<String>>(mutableListOf())
     val logLines: LiveData<MutableList<String>> = _logLines
 
@@ -45,6 +59,7 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
     val snackbar: LiveData<String?> = _snackbar
 
     private var job: Job? = null
+    private var resumeState: ResumeState? = null
 
     init {
         reloadProfiles()
@@ -59,10 +74,26 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setInputFile(uri: Uri) { _inputUri.value = uri; _inputName.value = fileName(uri) }
-    fun setOutputFile(uri: Uri) { _outputUri.value = uri; _outputName.value = fileName(uri) }
+    fun setInputFile(uri: Uri) {
+        _inputUri.value = uri
+        _inputName.value = fileName(uri)
+        resumeState = null
+        _canResume.value = false
+    }
+
+    fun setOutputFile(uri: Uri) {
+        _outputUri.value = uri
+        _outputName.value = fileName(uri)
+        resumeState = null
+        _canResume.value = false
+    }
 
     fun run(profileIndex: Int, maxKm: Double?, sampleKm: Double?) {
+        if (resumeState != null) {
+            resume()
+            return
+        }
+
         val profile = _profiles.value?.getOrNull(profileIndex)
             ?: run { _snackbar.value = "No profile selected"; return }
         val inputUri = _inputUri.value ?: run { _snackbar.value = "Select an input GPX file"; return }
@@ -70,6 +101,7 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
 
         job = viewModelScope.launch {
             _isRunning.value = true
+            _canResume.value = false
             val logs = mutableListOf<String>()
             _logLines.value = logs
 
@@ -77,26 +109,15 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
 
             try {
                 withContext(Dispatchers.IO) {
-                    val ctx = getApplication<Application>()
-                    val inTmp = File.createTempFile("gpx_in", ".gpx", ctx.cacheDir)
-                    val outTmp = File.createTempFile("gpx_out", ".gpx", ctx.cacheDir)
-                    try {
-                        ctx.contentResolver.openInputStream(inputUri)!!.use { it.copyTo(inTmp.outputStream()) }
-
-                        val count = Python.getInstance().getModule("gpx_bridge").callAttr(
-                            "enrich",
-                            inTmp.absolutePath, outTmp.absolutePath,
-                            profile.id, GpxApp.extractProfiles().absolutePath,
-                            maxKm, sampleKm,
-                            LogCallback(::log)
-                        ).toInt()
-
-                        ctx.contentResolver.openOutputStream(outputUri)!!.use { outTmp.inputStream().copyTo(it) }
-                        log("Done! Wrote $count waypoints.")
-                        _snackbar.postValue("Done! Found $count POIs.")
-                    } finally {
-                        inTmp.delete(); outTmp.delete()
-                    }
+                    runEnrichment(
+                        profile.id,
+                        inputUri,
+                        outputUri,
+                        maxKm,
+                        sampleKm,
+                        resume = false,
+                        log = ::log,
+                    )
                 }
             } catch (e: CancellationException) {
                 log("Cancelled.")
@@ -107,6 +128,112 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
                 _isRunning.value = false
             }
         }
+    }
+
+    private fun resume() {
+        val state = resumeState ?: return
+
+        job = viewModelScope.launch {
+            _isRunning.value = true
+            val logs = _logLines.value ?: mutableListOf()
+            _logLines.value = logs
+
+            fun log(msg: String) { logs.add(msg); _logLines.postValue(ArrayList(logs)) }
+
+            try {
+                withContext(Dispatchers.IO) {
+                    log("--- Resume ---")
+                    runEnrichment(
+                        state.profileId,
+                        Uri.fromFile(File(state.inputWorkPath)),
+                        state.outputUri,
+                        state.maxKm,
+                        state.sampleKm,
+                        resume = true,
+                        log = ::log,
+                        inputWorkPath = state.inputWorkPath,
+                        outputWorkPath = state.outputWorkPath,
+                    )
+                }
+            } catch (e: CancellationException) {
+                log("Cancelled.")
+            } catch (e: Exception) {
+                log("ERROR: ${e.message}")
+                _snackbar.postValue("Error: ${e.message}")
+            } finally {
+                _isRunning.value = false
+            }
+        }
+    }
+
+    private fun runEnrichment(
+        profileId: String,
+        inputUri: Uri,
+        outputUri: Uri,
+        maxKm: Double?,
+        sampleKm: Double?,
+        resume: Boolean,
+        log: (String) -> Unit,
+        inputWorkPath: String? = null,
+        outputWorkPath: String? = null,
+    ) {
+        val ctx = getApplication<Application>()
+        val workDir = GpxApp.gpxWorkDir().apply { mkdirs() }
+        val tag = workTag(inputUri, profileId)
+        val inWork = File(inputWorkPath ?: workDir, "enrich-in-$tag.gpx")
+        val outWork = File(outputWorkPath ?: workDir, "enrich-out-$tag.gpx")
+
+        if (!resume) {
+            ctx.contentResolver.openInputStream(inputUri)!!.use { it.copyTo(inWork.outputStream()) }
+        }
+
+        val resultJson = Python.getInstance().getModule("gpx_bridge").callAttr(
+            "enrich",
+            inWork.absolutePath,
+            outWork.absolutePath,
+            profileId,
+            GpxApp.extractProfiles().absolutePath,
+            maxKm,
+            sampleKm,
+            LogCallback(log),
+            resume,
+        ).toString()
+
+        val obj = org.json.JSONObject(resultJson)
+        if (obj.optBoolean("interrupted", false)) {
+            resumeState = ResumeState(
+                inputWorkPath = inWork.absolutePath,
+                outputWorkPath = outWork.absolutePath,
+                profileId = profileId,
+                outputUri = outputUri,
+                maxKm = maxKm,
+                sampleKm = sampleKm,
+                message = obj.optString("message", "Enrichment interrupted."),
+            )
+            _canResume.postValue(true)
+            _snackbar.postValue(
+                "Interrupted — tap Resume enrichment to continue. ${resumeState?.message}",
+            )
+            return
+        }
+
+        val count = obj.getInt("poi_count")
+        ctx.contentResolver.openOutputStream(outputUri)!!.use { outWork.inputStream().copyTo(it) }
+        inWork.delete()
+        outWork.delete()
+        resumeState = null
+        _canResume.postValue(false)
+        log("Done! Wrote $count waypoints.")
+        _snackbar.postValue("Done! Found $count POIs.")
+    }
+
+    private fun workTag(inputUri: Uri, profileId: String): String {
+        val name = fileName(inputUri) ?: inputUri.toString()
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest("$name|$profileId".toByteArray())
+            .take(8)
+            .joinToString("") { "%02x".format(it) }
+        return "$profileId-$digest"
     }
 
     fun cancel() {

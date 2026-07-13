@@ -29,6 +29,7 @@
     <string name="hint_easy_milestones">Track milestones (parts)</string>
     <string name="helper_easy_milestones">0 = off. N ≥ 2 writes a separate waypoint-only «stem»-milestones.gpx (1/N … N/N) per full route (not detour fragments). Track GPX files stay unchanged.</string>
     <string name="btn_generate">Generate GPX</string>
+    <string name="btn_resume_enrichment">Resume enrichment</string>
     <string name="label_generated_files">Generated files</string>
     <string name="label_alternate_full_gpx">Alternate full-route GPX</string>
     <string name="label_detour_poi_outputs">Detour segment POIs</string>

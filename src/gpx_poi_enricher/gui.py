@@ -46,7 +46,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .enricher import enrich_gpx_file
+from .enricher import EnrichInterrupted, enrich_gpx_file, enrich_tracks_to_poi_gpx
 from .gui_profiles import ProfilesManagerTab
 from .maps_to_gpx_cli import (
     DEFAULT_OUTPUT_STEM,
@@ -218,10 +218,21 @@ def _set_combo_profile_id(combo: QComboBox, profile_id: str) -> None:
 # ── Worker threads ─────────────────────────────────────────────────────────────
 
 
+def _count_poi_waypoints(gpx_path: str | pathlib.Path) -> int:
+    import xml.etree.ElementTree as ET
+
+    from .gpx_utils import GPX_NS
+
+    root = ET.parse(str(gpx_path)).getroot()
+    tag = f"{{{GPX_NS}}}wpt"
+    return sum(1 for _ in root.iter(tag))
+
+
 class _EnricherWorker(QThread):
     log_message = pyqtSignal(str)
     finished = pyqtSignal(list)  # list of POI dicts
     error = pyqtSignal(str)
+    interrupted = pyqtSignal(object)
 
     def __init__(
         self,
@@ -229,6 +240,8 @@ class _EnricherWorker(QThread):
         output_path: str,
         profile_id: str,
         cancel_event: threading.Event,
+        *,
+        resume: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__()
@@ -236,6 +249,7 @@ class _EnricherWorker(QThread):
         self._output = output_path
         self._profile_id = profile_id
         self._cancel_event = cancel_event
+        self._resume = resume
         self._kwargs = kwargs
 
     def run(self) -> None:
@@ -251,10 +265,23 @@ class _EnricherWorker(QThread):
                 self._profile_id,
                 cancel_event=self._cancel_event,
                 checkpoint_each_batch=True,
+                resume=self._resume,
                 **self._kwargs,
             )
             capture.flush()
             self.finished.emit(items)
+        except EnrichInterrupted as exc:
+            capture.flush()
+            self.interrupted.emit(
+                {
+                    "message": str(exc),
+                    "input_path": self._input,
+                    "output_path": self._output,
+                    "profile_id": self._profile_id,
+                    "kwargs": dict(self._kwargs),
+                }
+            )
+            self.error.emit(str(exc))
         except Exception as exc:
             capture.flush()
             self.error.emit(str(exc))
@@ -436,6 +463,7 @@ class _EasyWorker(QThread):
     )  # list[str] — waypoint-only -milestones.gpx per full route (not detour fragments)
     pois_done = pyqtSignal(object)  # list[tuple[str, int]] — output GPX path + POI count each
     error = pyqtSignal(str)
+    interrupted = pyqtSignal(object)
     finished = pyqtSignal()
 
     def __init__(
@@ -446,6 +474,8 @@ class _EasyWorker(QThread):
         cancel_event: threading.Event,
         quick: bool = False,
         split_segments: int = 0,
+        *,
+        resume_from: dict[str, Any] | None = None,
     ) -> None:
         super().__init__()
         self._urls = urls
@@ -454,6 +484,54 @@ class _EasyWorker(QThread):
         self._cancel_event = cancel_event
         self._quick = quick
         self._split_segments = split_segments
+        self._resume_from = resume_from
+
+    def _enrich_kwargs(self) -> dict[str, Any]:
+        enrich_kwargs: dict[str, Any] = {"progress_interval": 5.0}
+        if self._quick:
+            enrich_kwargs.update({"sample_km": 500.0, "max_km": 1.0, "country_sample_km": 500.0})
+        return enrich_kwargs
+
+    def _enrich_tracks(
+        self,
+        tracks_to_enrich: list[str],
+        out_dir: pathlib.Path,
+        *,
+        start_at: int = 0,
+        enrich_kwargs: dict[str, Any],
+    ) -> list[tuple[str, int]]:
+        prior: list[tuple[str, int]] = []
+        for tpath in tracks_to_enrich[:start_at]:
+            stem = pathlib.Path(tpath).stem
+            poi_path = out_dir / f"{stem}-{self._profile_id}.gpx"
+            if poi_path.is_file():
+                prior.append((str(poi_path), _count_poi_waypoints(poi_path)))
+        new_pairs = enrich_tracks_to_poi_gpx(
+            tracks_to_enrich,
+            self._profile_id,
+            out_dir,
+            start_at=start_at,
+            cancel_event=self._cancel_event,
+            **enrich_kwargs,
+        )
+        return prior + new_pairs
+
+    def _emit_interrupted(
+        self,
+        exc: EnrichInterrupted,
+        enrich_kwargs: dict[str, Any],
+    ) -> None:
+        self.interrupted.emit(
+            {
+                "message": str(exc),
+                "tracks_to_enrich": exc.tracks_to_enrich,
+                "track_index": exc.track_index,
+                "output_dir": self._output_dir,
+                "profile_id": self._profile_id,
+                "enrich_kwargs": enrich_kwargs,
+            }
+        )
+        self.error.emit(str(exc))
 
     def run(self) -> None:
         emitter = _LogEmitter()
@@ -462,7 +540,27 @@ class _EasyWorker(QThread):
         old_stderr = sys.stderr
         sys.stderr = capture  # type: ignore[assignment]
         session = requests.Session()
+        enrich_kwargs = self._enrich_kwargs()
         try:
+            if self._resume_from:
+                tracks_to_enrich = list(self._resume_from["tracks_to_enrich"])
+                start_at = int(self._resume_from["track_index"])
+                out_dir = pathlib.Path(self._output_dir)
+                self.log_message.emit(
+                    f"Resuming enrichment from track {start_at + 1}/{len(tracks_to_enrich)}…"
+                )
+                self.tracks_ready.emit(tracks_to_enrich)
+                poi_results = self._enrich_tracks(
+                    tracks_to_enrich,
+                    out_dir,
+                    start_at=start_at,
+                    enrich_kwargs=enrich_kwargs,
+                )
+                capture.flush()
+                self.pois_done.emit(poi_results)
+                self.finished.emit()
+                return
+
             routes: list[tuple[list[tuple[float, float, str]], list[tuple[float, float]]]] = []
             for idx, raw_url in enumerate(self._urls):
                 if self._cancel_event.is_set():
@@ -575,39 +673,24 @@ class _EasyWorker(QThread):
                 self.log_message.emit("Cancelled.")
                 return
 
-            enrich_kwargs: dict[str, Any] = {"progress_interval": 5.0}
-            if self._quick:
-                enrich_kwargs.update(
-                    {"sample_km": 500.0, "max_km": 1.0, "country_sample_km": 500.0}
+            try:
+                poi_results = self._enrich_tracks(
+                    tracks_to_enrich,
+                    out_dir,
+                    enrich_kwargs=enrich_kwargs,
                 )
-
-            primary_stem = track_path.stem
-            poi_results: list[tuple[str, int]] = []
-            for tpath in tracks_to_enrich:
-                if self._cancel_event.is_set():
-                    self.log_message.emit("Cancelled.")
-                    return
-                stem = pathlib.Path(tpath).stem
-                poi_path = str(out_dir / f"{stem}-{self._profile_id}.gpx")
-                self.log_message.emit(f"Enriching: {tpath} → {poi_path}")
-                # Primary track: honor profile early-cancel settings. Detours: never early-cancel.
-                early_cancel = None if stem == primary_stem else False
-                items = enrich_gpx_file(
-                    tpath,
-                    poi_path,
-                    self._profile_id,
-                    early_cancel_if_no_pois=early_cancel,
-                    cancel_event=self._cancel_event,
-                    checkpoint_each_batch=True,
-                    **enrich_kwargs,
-                )
-                poi_results.append((poi_path, len(items)))
-                self.log_message.emit(f"POIs saved: {poi_path} ({len(items)} POI(s))")
+            except EnrichInterrupted as exc:
+                capture.flush()
+                self._emit_interrupted(exc, enrich_kwargs)
+                return
 
             capture.flush()
             self.pois_done.emit(poi_results)
             self.finished.emit()
 
+        except EnrichInterrupted as exc:
+            capture.flush()
+            self._emit_interrupted(exc, enrich_kwargs)
         except Exception as exc:
             capture.flush()
             self.error.emit(str(exc))
@@ -630,6 +713,7 @@ class _EasyTab(QWidget):
         self._track_paths: list[str] = []
         self._milestone_paths: list[str] = []
         self._poi_results: list[tuple[str, int]] = []
+        self._resume_ctx: dict[str, Any] | None = None
         self._setup_ui()
         self._load_profiles()
 
@@ -748,6 +832,7 @@ class _EasyTab(QWidget):
         _set_combo_profile_id(self._profile_combo, cur if cur else "")
 
     def _run(self) -> None:
+        resume = self._resume_ctx is not None
         primary = self._url_edit.text().strip()
         extra_lines = [
             ln.strip() for ln in self._extra_urls_edit.toPlainText().splitlines() if ln.strip()
@@ -756,28 +841,35 @@ class _EasyTab(QWidget):
         pid = self._profile_combo.currentData()
         out_dir = self._output_dir_edit.text().strip()
 
-        if not primary:
-            QMessageBox.warning(
-                self, "URL required", "Please enter a primary Google Maps directions URL."
-            )
-            return
-        if not pid:
-            QMessageBox.warning(self, "Profile required", "Please select a profile.")
-            return
-        if not out_dir:
-            QMessageBox.warning(self, "Folder required", "Please select an output folder.")
-            return
-        if not pathlib.Path(out_dir).is_dir():
-            QMessageBox.warning(self, "Invalid folder", f"Output folder does not exist:\n{out_dir}")
-            return
+        if not resume:
+            if not primary:
+                QMessageBox.warning(
+                    self, "URL required", "Please enter a primary Google Maps directions URL."
+                )
+                return
+            if not pid:
+                QMessageBox.warning(self, "Profile required", "Please select a profile.")
+                return
+            if not out_dir:
+                QMessageBox.warning(self, "Folder required", "Please select an output folder.")
+                return
+            if not pathlib.Path(out_dir).is_dir():
+                QMessageBox.warning(
+                    self, "Invalid folder", f"Output folder does not exist:\n{out_dir}"
+                )
+                return
+            self._log.clear()
+            self._results_edit.setPlainText("—")
+            self._track_paths = []
+            self._milestone_paths = []
+            self._poi_results = []
+        else:
+            pid = self._resume_ctx["profile_id"]
+            out_dir = self._resume_ctx["output_dir"]
+            _append_log(self._log, "\n--- Resume ---")
 
-        self._log.clear()
-        self._results_edit.setPlainText("—")
-        self._track_paths = []
-        self._milestone_paths = []
-        self._poi_results = []
         self._progress.setRange(0, 0)
-        self._status_lbl.setText("Running…")
+        self._status_lbl.setText("Running…" if not resume else "Resuming…")
         self._run_btn.setEnabled(False)
         self._cancel_btn.setEnabled(True)
 
@@ -789,12 +881,14 @@ class _EasyTab(QWidget):
             self._cancel_event,
             self._quick,
             split_segments=self._milestone_parts.value(),
+            resume_from=self._resume_ctx if resume else None,
         )
         self._worker.log_message.connect(lambda t: _append_log(self._log, t))
         self._worker.milestone_paths_ready.connect(self._on_milestone_paths_ready)
         self._worker.tracks_ready.connect(self._on_tracks_ready)
         self._worker.pois_done.connect(self._on_pois_done)
         self._worker.finished.connect(self._on_done)
+        self._worker.interrupted.connect(self._on_interrupted)
         self._worker.error.connect(self._on_error)
         self._worker.start()
 
@@ -836,6 +930,8 @@ class _EasyTab(QWidget):
         self._results_edit.setPlainText("\n".join(lines) if lines else "—")
 
     def _on_done(self) -> None:
+        self._resume_ctx = None
+        self._run_btn.setText("Generate GPX")
         self._progress.setRange(0, 1)
         self._progress.setValue(1)
         n_files = len(self._poi_results)
@@ -846,7 +942,18 @@ class _EasyTab(QWidget):
         self._run_btn.setEnabled(True)
         self._cancel_btn.setEnabled(False)
 
+    def _on_interrupted(self, ctx: object) -> None:
+        self._resume_ctx = dict(ctx)  # type: ignore[arg-type]
+        self._run_btn.setText("Resume enrichment")
+        self._progress.setRange(0, 1)
+        self._progress.setValue(0)
+        self._status_lbl.setText("Interrupted — click Resume enrichment to continue.")
+        self._run_btn.setEnabled(True)
+        self._cancel_btn.setEnabled(False)
+
     def _on_error(self, msg: str) -> None:
+        if self._resume_ctx is not None:
+            return
         self._progress.setRange(0, 1)
         self._progress.setValue(0)
         self._status_lbl.setText("Error — see log.")
@@ -895,6 +1002,7 @@ class _EnricherTab(QWidget):
         self._worker: _EnricherWorker | None = None
         self._cancel_event = threading.Event()
         self._profiles: dict = {}
+        self._resume_ctx: dict[str, Any] | None = None
         self._setup_ui()
         self._load_profiles()
 
@@ -1067,41 +1175,50 @@ class _EnricherTab(QWidget):
     # ── Run / Cancel ───────────────────────────────────────────────────────────
 
     def _run(self) -> None:
-        inp = self._input_edit.text().strip()
-        out = self._output_edit.text().strip()
-        pid = self._profile_combo.currentData()
+        resume = self._resume_ctx is not None
+        if resume:
+            inp = str(self._resume_ctx["input_path"])
+            out = str(self._resume_ctx["output_path"])
+            pid = str(self._resume_ctx["profile_id"])
+            kwargs = dict(self._resume_ctx["kwargs"])
+            _append_log(self._log, "\n--- Resume ---")
+        else:
+            inp = self._input_edit.text().strip()
+            out = self._output_edit.text().strip()
+            pid = self._profile_combo.currentData()
 
-        if not inp:
-            QMessageBox.warning(self, "Input required", "Please select an input GPX file.")
-            return
-        if not out:
-            QMessageBox.warning(self, "Output required", "Please specify an output GPX file.")
-            return
-        if not pid:
-            QMessageBox.warning(self, "Profile required", "Please select a profile.")
-            return
+            if not inp:
+                QMessageBox.warning(self, "Input required", "Please select an input GPX file.")
+                return
+            if not out:
+                QMessageBox.warning(self, "Output required", "Please specify an output GPX file.")
+                return
+            if not pid:
+                QMessageBox.warning(self, "Profile required", "Please select a profile.")
+                return
 
-        self._log.clear()
-        self._table.setRowCount(0)
+            self._log.clear()
+            self._table.setRowCount(0)
+            kwargs = {
+                "max_km": self._max_km.value() or (1.0 if self._quick else None),
+                "sample_km": self._sample_km.value() or (500.0 if self._quick else None),
+                "batch_size": self._batch_size.value() or None,
+                "country_sample_km": self._country_km.value() if not self._quick else 500.0,
+                "progress_interval": 5.0,
+                "verbose": self._verbose_cb.isChecked(),
+            }
+
         self._progress.setRange(0, 0)  # pulsing / indeterminate
-        self._status_lbl.setText("Running…")
+        self._status_lbl.setText("Resuming…" if resume else "Running…")
         self._run_btn.setEnabled(False)
         self._cancel_btn.setEnabled(True)
 
         self._cancel_event = threading.Event()
 
-        kwargs: dict[str, Any] = {
-            "max_km": self._max_km.value() or (1.0 if self._quick else None),
-            "sample_km": self._sample_km.value() or (500.0 if self._quick else None),
-            "batch_size": self._batch_size.value() or None,
-            "country_sample_km": self._country_km.value() if not self._quick else 500.0,
-            "progress_interval": 5.0,
-            "verbose": self._verbose_cb.isChecked(),
-        }
-
-        self._worker = _EnricherWorker(inp, out, pid, self._cancel_event, **kwargs)
+        self._worker = _EnricherWorker(inp, out, pid, self._cancel_event, resume=resume, **kwargs)
         self._worker.log_message.connect(lambda t: _append_log(self._log, t))
         self._worker.finished.connect(self._on_done)
+        self._worker.interrupted.connect(self._on_interrupted)
         self._worker.error.connect(self._on_error)
         self._worker.start()
 
@@ -1113,6 +1230,8 @@ class _EnricherTab(QWidget):
     # ── Completion callbacks ───────────────────────────────────────────────────
 
     def _on_done(self, items: list) -> None:
+        self._resume_ctx = None
+        self._run_btn.setText("Run Enrichment")
         self._progress.setRange(0, 1)
         self._progress.setValue(1)
         self._status_lbl.setText(f"Done — {len(items)} POI(s) written.")
@@ -1121,7 +1240,18 @@ class _EnricherTab(QWidget):
         _append_log(self._log, f"\nFinished: {len(items)} POI(s) added to output file.")
         self._populate_table(items)
 
+    def _on_interrupted(self, ctx: object) -> None:
+        self._resume_ctx = dict(ctx)  # type: ignore[arg-type]
+        self._run_btn.setText("Resume enrichment")
+        self._progress.setRange(0, 1)
+        self._progress.setValue(0)
+        self._status_lbl.setText("Interrupted — click Resume enrichment to continue.")
+        self._run_btn.setEnabled(True)
+        self._cancel_btn.setEnabled(False)
+
     def _on_error(self, msg: str) -> None:
+        if self._resume_ctx is not None:
+            return
         self._progress.setRange(0, 1)
         self._progress.setValue(0)
         self._status_lbl.setText("Error — see log.")

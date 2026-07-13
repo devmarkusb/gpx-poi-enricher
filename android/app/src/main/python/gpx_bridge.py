@@ -11,7 +11,7 @@ import threading
 
 import requests
 
-from gpx_poi_enricher.enricher import enrich_gpx_file
+from gpx_poi_enricher.enricher import EnrichInterrupted, enrich_gpx_file, enrich_tracks_to_poi_gpx
 from gpx_poi_enricher.maps_to_gpx_cli import (
     _expand_url,
     _resolve_waypoints,
@@ -143,7 +143,8 @@ def enrich(
     max_km,  # float or None (passed as Java Double/null)
     sample_km,
     log_callback,
-) -> int:
+    resume: bool = False,
+) -> str:
     _cancel_event.clear()
     kwargs = {"cancel_event": _cancel_event}
     if max_km is not None:
@@ -161,9 +162,20 @@ def enrich(
                 profile_id,
                 profiles_dir=pathlib.Path(profiles_dir),
                 checkpoint_each_batch=True,
+                resume=bool(resume),
                 **kwargs,
             )
-            return len(pois)
+            return json.dumps({"ok": True, "poi_count": len(pois)})
+        except EnrichInterrupted as exc:
+            return json.dumps(
+                {
+                    "interrupted": True,
+                    "message": str(exc),
+                    "input_path": input_path,
+                    "output_path": output_path,
+                    "profile_id": profile_id,
+                }
+            )
         finally:
             sys.stderr.flush()
             sys.stderr = old
@@ -381,30 +393,54 @@ def easy_generate(
             detour_results: list[dict] = []
             primary_poi_count = 0
 
-            for tpath in tracks_to_enrich:
-                if _cancel_event.is_set():
-                    sys.stderr.write("Cancelled.\n")
-                    return json.dumps({"cancelled": True})
-                stem = pathlib.Path(tpath).stem
-                outp = str(out_dir / f"{stem}-{profile_id}.gpx")
-                sys.stderr.write(f"Enriching: {tpath} → {outp}\n")
-                early_cancel = None if stem == primary_stem else False
-                items = enrich_gpx_file(
-                    tpath,
-                    outp,
+            try:
+                poi_pairs = enrich_tracks_to_poi_gpx(
+                    tracks_to_enrich,
                     profile_id,
+                    out_dir,
                     profiles_dir=pathlib.Path(profiles_dir),
-                    early_cancel_if_no_pois=early_cancel,
                     cancel_event=_cancel_event,
-                    checkpoint_each_batch=True,
                     progress_interval=5.0,
                 )
-                n = len(items)
-                sys.stderr.write(f"POIs saved: {outp}  ({n} POI(s))\n")
+            except EnrichInterrupted as exc:
+                return json.dumps(
+                    {
+                        "interrupted": True,
+                        "message": str(exc),
+                        "tracks_to_enrich": exc.tracks_to_enrich,
+                        "track_index": exc.track_index,
+                        "profile_id": profile_id,
+                        "output_dir": str(out_dir),
+                        "split_segments": ss,
+                        "track_path": track_path,
+                        "poi_path": poi_path,
+                        "start": start_label,
+                        "finish": finish_label,
+                        "track_reused": track_reused,
+                        "reused_paths": reused_paths,
+                        "alternate_full_paths": alternate_full_paths,
+                        "milestone_paths": milestone_paths,
+                    }
+                )
+
+            poi_by_stem: dict[str, tuple[str, int]] = {}
+            for poi_path_item, n in poi_pairs:
+                stem = pathlib.Path(poi_path_item).stem
+                if stem.endswith(f"-{profile_id}"):
+                    stem = stem[: -len(f"-{profile_id}")]
+                poi_by_stem[stem] = (poi_path_item, n)
+
+            for tpath in tracks_to_enrich:
+                stem = pathlib.Path(tpath).stem
+                if stem not in poi_by_stem:
+                    continue
+                poi_path_item, n = poi_by_stem[stem]
                 if stem == primary_stem:
                     primary_poi_count = n
                 elif "-detour-" in stem:
-                    detour_results.append({"track_path": tpath, "poi_path": outp, "poi_count": n})
+                    detour_results.append(
+                        {"track_path": tpath, "poi_path": poi_path_item, "poi_count": n}
+                    )
 
             return json.dumps(
                 {
@@ -418,6 +454,82 @@ def easy_generate(
                     "alternate_full_paths": alternate_full_paths,
                     "detour_results": detour_results,
                     "milestone_paths": milestone_paths,
+                }
+            )
+        finally:
+            sys.stderr.flush()
+            sys.stderr = old
+
+
+def easy_resume_enrichment(
+    profile_id: str,
+    profiles_dir: str,
+    output_dir: str,
+    tracks_to_enrich_json: str,
+    start_at: int,
+    log_callback,
+) -> str:
+    """Continue POI enrichment after :class:`EnrichInterrupted` from :func:`easy_generate`."""
+    _cancel_event.clear()
+    tracks_to_enrich: list[str] = json.loads(tracks_to_enrich_json)
+    out_dir = pathlib.Path(output_dir)
+    with _stderr_lock:
+        old = sys.stderr
+        sys.stderr = _LogStream(log_callback)
+        try:
+            primary_stem = pathlib.Path(tracks_to_enrich[0]).stem
+            track_path = tracks_to_enrich[0]
+            poi_path = str(out_dir / f"{primary_stem}-{profile_id}.gpx")
+            detour_results: list[dict] = []
+            primary_poi_count = 0
+
+            try:
+                poi_pairs = enrich_tracks_to_poi_gpx(
+                    tracks_to_enrich,
+                    profile_id,
+                    out_dir,
+                    start_at=int(start_at),
+                    profiles_dir=pathlib.Path(profiles_dir),
+                    cancel_event=_cancel_event,
+                    progress_interval=5.0,
+                )
+            except EnrichInterrupted as exc:
+                return json.dumps(
+                    {
+                        "interrupted": True,
+                        "message": str(exc),
+                        "tracks_to_enrich": exc.tracks_to_enrich,
+                        "track_index": exc.track_index,
+                        "profile_id": profile_id,
+                        "output_dir": str(out_dir),
+                    }
+                )
+
+            poi_by_stem: dict[str, tuple[str, int]] = {}
+            for poi_path_item, n in poi_pairs:
+                stem = pathlib.Path(poi_path_item).stem
+                if stem.endswith(f"-{profile_id}"):
+                    stem = stem[: -len(f"-{profile_id}")]
+                poi_by_stem[stem] = (poi_path_item, n)
+
+            for tpath in tracks_to_enrich:
+                stem = pathlib.Path(tpath).stem
+                if stem not in poi_by_stem:
+                    continue
+                poi_path_item, n = poi_by_stem[stem]
+                if stem == primary_stem:
+                    primary_poi_count = n
+                elif "-detour-" in stem:
+                    detour_results.append(
+                        {"track_path": tpath, "poi_path": poi_path_item, "poi_count": n}
+                    )
+
+            return json.dumps(
+                {
+                    "track_path": track_path,
+                    "poi_path": poi_path,
+                    "poi_count": primary_poi_count,
+                    "detour_results": detour_results,
                 }
             )
         finally:

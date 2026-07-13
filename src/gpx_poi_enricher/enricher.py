@@ -15,9 +15,12 @@ from typing import Any
 
 import requests
 
+from .enrich_checkpoint import clear_checkpoint, has_checkpoint, read_checkpoint, write_checkpoint
 from .geocoding import detect_country_segments
 from .gpx_utils import (
+    GPX_NS,
     add_waypoints_to_gpx,
+    min_distance_to_track_km,
     parse_gpx_trackpoints,
     remove_tracks_and_routes,
     sample_track_by_distance,
@@ -25,6 +28,25 @@ from .gpx_utils import (
 from .overpass import build_overpass_queries, extract_candidates, query_overpass
 from .profiles import SearchProfile, load_profile
 from .progress import ProgressHeartbeat
+
+
+class EnrichInterrupted(Exception):
+    """Raised when enrichment stops mid-track but a batch checkpoint exists."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        track_path: str,
+        poi_path: str,
+        track_index: int,
+        tracks_to_enrich: list[str],
+    ) -> None:
+        super().__init__(message)
+        self.track_path = track_path
+        self.poi_path = poi_path
+        self.track_index = track_index
+        self.tracks_to_enrich = tracks_to_enrich
 
 
 def _sorted_poi_items(
@@ -70,6 +92,42 @@ def _dedupe_overpass_elements(elements: list[dict[str, Any]]) -> list[dict[str, 
     return out
 
 
+def _load_candidates_from_checkpoint_gpx(
+    checkpoint_path: str | pathlib.Path,
+    track_points: list[tuple[float, float]],
+    profile: SearchProfile,
+    max_km: float,
+) -> OrderedDict[tuple[float, float], dict[str, Any]]:
+    tree = ET.parse(str(checkpoint_path))
+    root = tree.getroot()
+    wpt_tag = f"{{{GPX_NS}}}wpt"
+    name_tag = f"{{{GPX_NS}}}name"
+    candidates: OrderedDict[tuple[float, float], dict[str, Any]] = OrderedDict()
+    for wpt in root.findall(f".//{wpt_tag}"):
+        lat = float(wpt.attrib["lat"])
+        lon = float(wpt.attrib["lon"])
+        name_el = wpt.find(name_tag)
+        name = (
+            (name_el.text or profile.description).strip()
+            if name_el is not None
+            else profile.description
+        )
+        distance_km = min_distance_to_track_km(lat, lon, track_points)
+        if distance_km > max_km:
+            continue
+        key = (round(lat, 5), round(lon, 5))
+        if key not in candidates:
+            candidates[key] = {
+                "lat": lat,
+                "lon": lon,
+                "name": name,
+                "kind": profile.description,
+                "distance_km": distance_km,
+                "tags": {},
+            }
+    return candidates
+
+
 def enrich_track(
     track_points: list[tuple[float, float]],
     profile: SearchProfile,
@@ -85,6 +143,9 @@ def enrich_track(
     early_cancel_if_no_pois: bool | None = None,
     early_cancel_after_batches: int | None = None,
     on_batch_checkpoint: Callable[[list[dict[str, Any]]], None] | None = None,
+    resume_after_batch: int = 0,
+    initial_candidates: OrderedDict[tuple[float, float], dict[str, Any]] | None = None,
+    on_batch_completed: Callable[[int, int], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Enrich a list of track points with nearby POIs from OpenStreetMap.
 
@@ -104,6 +165,9 @@ def enrich_track(
             (only applies when early cancel is enabled).
         on_batch_checkpoint: If set, called after each Overpass batch with the current sorted
             POI list (same ordering as the return value) so callers can persist partial results.
+        resume_after_batch: Skip batches with index <= this value (1-based).
+        initial_candidates: POIs to keep when resuming.
+        on_batch_completed: Called after each successful batch with ``(batch_num, total_batches)``.
 
     Returns:
         Sorted list of POI dicts (keys: lat, lon, name, kind, distance_km, tags).
@@ -162,14 +226,28 @@ def enrich_track(
     total_batches = sum(
         (len(pts) + _batch_size - 1) // _batch_size for pts in country_segments.values()
     )
+    if resume_after_batch > 0:
+        n_loaded = len(initial_candidates) if initial_candidates else 0
+        print(
+            f"Resuming after batch {resume_after_batch}/{total_batches} "
+            f"with {n_loaded} POI(s) from checkpoint.",
+            file=sys.stderr,
+        )
+
     batch_num = 0
-    all_candidates: OrderedDict[tuple[float, float], dict[str, Any]] = OrderedDict()
+    all_candidates: OrderedDict[tuple[float, float], dict[str, Any]] = (
+        OrderedDict(initial_candidates) if initial_candidates else OrderedDict()
+    )
+    progress_state["pois_found"] = len(all_candidates)
 
     def _run_overpass_batches() -> None:
         nonlocal batch_num
         for cc, pts in country_segments.items():
             for batch in _chunked(pts, _batch_size):
                 batch_num += 1
+                if batch_num <= resume_after_batch:
+                    continue
+
                 progress_state.update(
                     {"phase": "overpass", "country": cc, "batch": (batch_num, total_batches)}
                 )
@@ -208,6 +286,9 @@ def enrich_track(
                 if on_batch_checkpoint is not None:
                     on_batch_checkpoint(_sorted_poi_items(all_candidates))
 
+                if on_batch_completed is not None:
+                    on_batch_completed(batch_num, total_batches)
+
                 time.sleep(1.0)
                 if cancel_event is not None and cancel_event.is_set():
                     raise RuntimeError("Operation cancelled by user.")
@@ -229,6 +310,7 @@ def enrich_gpx_file(
     early_cancel_if_no_pois: bool | None = None,
     *,
     checkpoint_each_batch: bool = False,
+    resume: bool = False,
     **kwargs: Any,
 ) -> list[dict[str, Any]]:
     """High-level convenience function: load GPX, enrich, write output GPX.
@@ -241,6 +323,7 @@ def enrich_gpx_file(
         early_cancel_if_no_pois: Passed to :func:`enrich_track`; None means use the profile.
         checkpoint_each_batch: If True, overwrite *output_path* after each Overpass batch with
             all POIs collected so far (same format as the final file), so interruptions retain data.
+        resume: Continue from ``.enrich-checkpoint.json`` next to *output_path*.
         **kwargs: Forwarded to :func:`enrich_track`.
 
     Returns:
@@ -252,6 +335,18 @@ def enrich_gpx_file(
     if checkpoint_each_batch:
         outp.parent.mkdir(parents=True, exist_ok=True)
 
+    _max_km = float(kwargs.get("max_km") if kwargs.get("max_km") is not None else profile.max_km)
+    resume_after_batch = 0
+    initial_candidates: OrderedDict[tuple[float, float], dict[str, Any]] | None = None
+    if resume:
+        resume_after_batch, _total = read_checkpoint(outp)
+        if outp.is_file():
+            initial_candidates = _load_candidates_from_checkpoint_gpx(
+                outp, track_points, profile, _max_km
+            )
+    elif checkpoint_each_batch:
+        clear_checkpoint(outp)
+
     def _checkpoint(items: list[dict[str, Any]]) -> None:
         _write_waypoints_gpx_snapshot(
             root,
@@ -261,13 +356,33 @@ def enrich_gpx_file(
             type_label=profile.description,
         )
 
-    items = enrich_track(
-        track_points,
-        profile,
-        early_cancel_if_no_pois=early_cancel_if_no_pois,
-        on_batch_checkpoint=_checkpoint if checkpoint_each_batch else None,
-        **kwargs,
-    )
+    def _on_batch_completed(batch_num: int, total_batches: int) -> None:
+        if checkpoint_each_batch:
+            write_checkpoint(outp, last_completed_batch=batch_num, total_batches=total_batches)
+
+    try:
+        items = enrich_track(
+            track_points,
+            profile,
+            early_cancel_if_no_pois=early_cancel_if_no_pois,
+            on_batch_checkpoint=_checkpoint if checkpoint_each_batch else None,
+            resume_after_batch=resume_after_batch,
+            initial_candidates=initial_candidates,
+            on_batch_completed=_on_batch_completed if checkpoint_each_batch else None,
+            **kwargs,
+        )
+    except Exception as exc:
+        if checkpoint_each_batch and has_checkpoint(outp):
+            raise EnrichInterrupted(
+                str(exc),
+                track_path=str(input_path),
+                poi_path=str(outp),
+                track_index=0,
+                tracks_to_enrich=[str(input_path)],
+            ) from exc
+        raise
+
+    clear_checkpoint(outp)
 
     print(f"\nAdding {len(items)} waypoints.", file=sys.stderr)
     add_waypoints_to_gpx(root, items, symbol=profile.symbol, type_label=profile.description)
@@ -276,3 +391,61 @@ def enrich_gpx_file(
     print(f"Wrote: {output_path}", file=sys.stderr)
 
     return items
+
+
+def enrich_tracks_to_poi_gpx(
+    tracks_to_enrich: list[str],
+    profile_id: str,
+    output_dir: str | pathlib.Path,
+    *,
+    start_at: int = 0,
+    profiles_dir: pathlib.Path | None = None,
+    progress_interval: float = 5.0,
+    cancel_event: threading.Event | None = None,
+    **kwargs: Any,
+) -> list[tuple[str, int]]:
+    """Enrich each track to ``{stem}-{profile_id}.gpx`` under *output_dir*.
+
+    Raises:
+         :class:`EnrichInterrupted` when a track fails but a batch checkpoint exists.
+    """
+    out_dir = pathlib.Path(output_dir)
+    primary_stem = pathlib.Path(tracks_to_enrich[0]).stem
+    results: list[tuple[str, int]] = []
+
+    for i, tpath in enumerate(tracks_to_enrich):
+        if i < start_at:
+            continue
+        stem = pathlib.Path(tpath).stem
+        poi_path = str(out_dir / f"{stem}-{profile_id}.gpx")
+        do_resume = has_checkpoint(poi_path)
+        early_cancel = None if stem == primary_stem else False
+        label = "Resuming" if do_resume else "Enriching"
+        print(f"{label}: {tpath} → {poi_path}", file=sys.stderr)
+        try:
+            items = enrich_gpx_file(
+                tpath,
+                poi_path,
+                profile_id,
+                profiles_dir=profiles_dir,
+                early_cancel_if_no_pois=early_cancel,
+                cancel_event=cancel_event,
+                checkpoint_each_batch=True,
+                resume=do_resume,
+                progress_interval=progress_interval,
+                **kwargs,
+            )
+        except Exception as exc:
+            if has_checkpoint(poi_path):
+                raise EnrichInterrupted(
+                    str(exc),
+                    track_path=tpath,
+                    poi_path=poi_path,
+                    track_index=i,
+                    tracks_to_enrich=list(tracks_to_enrich),
+                ) from exc
+            raise
+        results.append((poi_path, len(items)))
+        print(f"POIs saved: {poi_path} ({len(items)} POI(s))", file=sys.stderr)
+
+    return results
