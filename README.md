@@ -116,6 +116,10 @@ gpx-poi-enricher-gui --quick  # sparse enrichment ([quick] in title bar)
 
 From a clone: `uv run gpx-poi-enricher-gui`.
 
+**macOS app bundle** (Finder/Dock icon, double-click): after `uv sync --extra gui`, run
+`uv run python scripts/build_macos_app.py` → `dist/GPX POI Enricher.app`. Drag to Applications or
+Dock. Rebuild after upgrading the package in `.venv`.
+
 **Easy** — one primary Maps URL (required), optional extra URLs per line → routed GPX(s), optional
 alternate/detour GPX files, then POI enrichment. Progress log + file list; cancel after current
 Overpass batch.

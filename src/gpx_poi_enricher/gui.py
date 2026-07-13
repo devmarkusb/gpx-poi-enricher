@@ -16,7 +16,7 @@ from typing import Any
 
 import requests
 from PyQt6.QtCore import QObject, QSettings, Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QCloseEvent, QFont, QFontMetrics
+from PyQt6.QtGui import QCloseEvent, QFont, QFontMetrics, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -1463,6 +1463,17 @@ class _MapsTab(QWidget):
             s.endGroup()
 
 
+# ── App icon ───────────────────────────────────────────────────────────────────
+
+_APP_ICON_PATH = pathlib.Path(__file__).resolve().parent / "data" / "app_icon.png"
+
+
+def _load_app_icon() -> QIcon:
+    if _APP_ICON_PATH.is_file():
+        return QIcon(str(_APP_ICON_PATH))
+    return QIcon()
+
+
 # ── Main window ────────────────────────────────────────────────────────────────
 
 
@@ -1580,7 +1591,12 @@ def main() -> None:
     quick = "--quick" in sys.argv
     qt_argv = [a for a in sys.argv if a != "--quick"]
     app = QApplication.instance() or QApplication(qt_argv)
+    icon = _load_app_icon()
+    if not icon.isNull():
+        app.setWindowIcon(icon)
     win = MainWindow(quick=quick)
+    if not icon.isNull():
+        win.setWindowIcon(icon)
     win.show()
     sys.exit(app.exec())
 

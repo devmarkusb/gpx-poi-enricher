@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Google Play listing bitmaps under android/fastlane/metadata/.../images/."""
+"""Generate shared brand bitmaps: Play listing images and the desktop GUI icon."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ SLATE_R = (0x13, 0x4E, 0x4A)
 
 _REPO = Path(__file__).resolve().parent.parent
 OUT_DIR = _REPO / "android/fastlane/metadata/android/en-US/images"
+PKG_ICON = _REPO / "src/gpx_poi_enricher/data/app_icon.png"
 SHOT_DIR = OUT_DIR / "phoneScreenshots"
 
 
@@ -263,6 +264,10 @@ def main() -> int:
     icon_path = OUT_DIR / "icon.png"
     icon.save(icon_path, "PNG", optimize=True)
     print(f"Wrote {icon_path}")
+
+    PKG_ICON.parent.mkdir(parents=True, exist_ok=True)
+    icon.save(PKG_ICON, "PNG", optimize=True)
+    print(f"Wrote {PKG_ICON}")
 
     feat = gen_feature_1024_500()
     feat_path = OUT_DIR / "featureGraphic.png"

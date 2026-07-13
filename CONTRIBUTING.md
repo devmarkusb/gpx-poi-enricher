@@ -91,7 +91,8 @@ upload when `PLAY_SERVICE_ACCOUNT_JSON` is set (dispatched from Release after se
 `android/app/build.gradle.kts`). Metadata-only: run workflow with **Listing/screenshots only**.
 
 ```bash
-uv run --with pillow python scripts/generate_play_assets.py   # listing bitmaps
+uv run --with pillow python scripts/generate_brand_assets.py   # Play listing + app icon
+uv run python scripts/build_macos_app.py                     # macOS .app (GUI icon in Finder)
 ```
 
 Local build (`android/`): `bundle install && bundle exec fastlane build_release`. Never commit

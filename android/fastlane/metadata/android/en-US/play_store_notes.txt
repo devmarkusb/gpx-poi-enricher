@@ -5,7 +5,7 @@ Current listing title: GPX POI Enricher
 Regenerate bitmaps
 ------------------
 From repo root:
-  uv run --with pillow python scripts/generate_play_assets.py
+  uv run --with pillow python scripts/generate_brand_assets.py
 
 Outputs (Fastlane default paths):
   images/icon.png                 — 512 x 512
@@ -13,6 +13,7 @@ Outputs (Fastlane default paths):
   images/phoneScreenshots/*.png   — 1080 x 1920 placeholders
   images/sevenInchScreenshots/    — first phone shot copied (Play tablet 7" slot)
   images/tenInchScreenshots/      — first phone shot copied (Play tablet 10" slot)
+  src/gpx_poi_enricher/data/app_icon.png — desktop GUI / macOS .app source icon
 
 Replace phone screenshots with real device captures when you can; Play reviewers prefer authentic UI.
 
