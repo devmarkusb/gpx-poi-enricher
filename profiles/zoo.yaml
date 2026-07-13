@@ -4,9 +4,9 @@ symbol: Zoo
 require_distinct_name: true
 defaults:
   max_km: 12.0
-  sample_km: 6.0
-  batch_size: 3
-  retries: 2
+  sample_km: 10.0
+  batch_size: 1
+  retries: 3
 tags:
   - key: tourism
     value: zoo
