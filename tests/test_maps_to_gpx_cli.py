@@ -85,6 +85,36 @@ def test_extract_google_data_coords_ignores_invalid_values():
     assert _extract_google_data_coords(url) == []
 
 
+def test_extract_google_data_coords_supports_8m2_encoding():
+    url = (
+        "https://www.google.com/maps/dir/Heilbronn/Neuer+Weg+2C/data=!4m16!4m15!"
+        "!1m5!1m4!1s0x47982897b04d51d1:0x41ffd3c8d099070!8m2!3d49.1426929!4d9.210879!"
+        "!1m5!1m4!1s0x4709c6f5d49261fd:0x5531f089e13b5b03!8m2!3d50.9920183!4d13.7770421!"
+        "!2m1!11b1!3e0"
+    )
+
+    assert _extract_google_data_coords(url) == [
+        (49.1426929, 9.210879),
+        (50.9920183, 13.7770421),
+    ]
+
+
+def test_parse_waypoints_attaches_google_data_coords_from_8m2_short_url():
+    url = (
+        "https://www.google.com/maps/dir/Heilbronn/Neuer+Weg+2C/data=!4m16!4m15!"
+        "!1m5!1m4!1s0x47982897b04d51d1:0x41ffd3c8d099070!8m2!3d49.1426929!4d9.210879!"
+        "!1m5!1m4!1s0x4709c6f5d49261fd:0x5531f089e13b5b03!8m2!3d50.9920183!4d13.7770421!"
+        "!2m1!11b1!3e0"
+    )
+
+    waypoints = parse_waypoints_from_url(url)
+
+    assert waypoints == [
+        {"name": "Heilbronn", "coord": (49.1426929, 9.210879)},
+        {"name": "Neuer Weg 2C", "coord": (50.9920183, 13.7770421)},
+    ]
+
+
 def test_pick_best_geocode_result_prefers_waypoint_nearby():
     results = [
         {"lat": "54.6526955", "lon": "9.7726300"},

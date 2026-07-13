@@ -215,12 +215,23 @@ def _extract_google_data_coords(url: str) -> list[tuple[float, float]]:
     if not match:
         return []
     data = match.group(1)
-    pairs = re.findall(r"!2m2!1d([\d.-]+)!2d([\d.-]+)", data)
     coords: list[tuple[float, float]] = []
-    for lon_s, lat_s in pairs:
+    seen: set[tuple[float, float]] = set()
+
+    def _add(lat_s: str, lon_s: str) -> None:
         lat, lon = float(lat_s), float(lon_s)
         if -90 <= lat <= 90 and -180 <= lon <= 180:
-            coords.append((lat, lon))
+            key = (lat, lon)
+            if key not in seen:
+                seen.add(key)
+                coords.append(key)
+
+    # Older / alternate encoding: !2m2!1d{lon}!2d{lat}
+    for lon_s, lat_s in re.findall(r"!2m2!1d([\d.-]+)!2d([\d.-]+)", data):
+        _add(lat_s, lon_s)
+    # Common in maps.app.goo.gl expanded URLs: !8m2!3d{lat}!4d{lon}
+    for lat_s, lon_s in re.findall(r"!8m2!3d([\d.-]+)!4d([\d.-]+)", data):
+        _add(lat_s, lon_s)
     return coords
 
 
