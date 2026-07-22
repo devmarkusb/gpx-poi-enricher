@@ -1,5 +1,6 @@
 import java.io.File
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.application)
@@ -58,13 +59,13 @@ val removeAdsProductId = loadOptionalLocalProperty("removeAdsInappProductId") ?:
 
 android {
     namespace = "com.gpxpoienricher"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         // Play Store application id (Kotlin sources remain under `namespace` above).
         applicationId = "org.cismypa.gpxpoienricher"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = playVersionCode
         versionName = playVersionName
 
@@ -105,11 +106,8 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
-    }
-    kotlinOptions {
-        jvmTarget = "1.8"
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures {
         viewBinding = true
@@ -126,6 +124,12 @@ android {
         named("main") {
             assets.srcDirs("src/main/assets")
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 

@@ -8,6 +8,7 @@ import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
+import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
@@ -38,7 +39,10 @@ class PlayStoreMonetization(
 
     private val billingClient: BillingClient = BillingClient.newBuilder(app)
         .setListener(this)
-        .enablePendingPurchases()
+        .enablePendingPurchases(
+            PendingPurchasesParams.newBuilder().enableOneTimeProducts().build(),
+        )
+        .enableAutoServiceReconnection()
         .build()
 
     private val _adFree = MutableStateFlow(PremiumPrefs.isAdFree(app))
@@ -64,7 +68,7 @@ class PlayStoreMonetization(
     }
 
     override fun onBillingServiceDisconnected() {
-        billingClient.startConnection(this)
+        removeAdsProductDetails = null
     }
 
     private fun prefetchRemoveAdsProduct() {
@@ -79,12 +83,13 @@ class PlayStoreMonetization(
                 ),
             )
             .build()
-        billingClient.queryProductDetailsAsync(params) { billingResult, detailsList ->
+        billingClient.queryProductDetailsAsync(params) { billingResult, queryProductDetailsResult ->
             if (billingResult.responseCode != BillingClient.BillingResponseCode.OK) {
                 Log.w(TAG, "queryProductDetails: ${billingResult.responseCode}")
                 return@queryProductDetailsAsync
             }
-            removeAdsProductDetails = detailsList?.firstOrNull { it.productId == productId }
+            removeAdsProductDetails =
+                queryProductDetailsResult.productDetailsList.firstOrNull { it.productId == productId }
             if (removeAdsProductDetails == null) {
                 Log.w(
                     TAG,
@@ -165,11 +170,17 @@ class PlayStoreMonetization(
             prefetchRemoveAdsProduct()
             return
         }
-        val pdParams = BillingFlowParams.ProductDetailsParams.newBuilder()
-            .setProductDetails(details)
-            .build()
+        val offerToken =
+            details.oneTimePurchaseOfferDetailsList?.firstOrNull()?.offerToken
+                ?: details.oneTimePurchaseOfferDetails?.offerToken
+        val pdParamsBuilder =
+            BillingFlowParams.ProductDetailsParams.newBuilder()
+                .setProductDetails(details)
+        if (offerToken != null) {
+            pdParamsBuilder.setOfferToken(offerToken)
+        }
         val flowParams = BillingFlowParams.newBuilder()
-            .setProductDetailsParamsList(listOf(pdParams))
+            .setProductDetailsParamsList(listOf(pdParamsBuilder.build()))
             .build()
         val launchResult = billingClient.launchBillingFlow(activity, flowParams)
         if (launchResult.responseCode != BillingClient.BillingResponseCode.OK) {

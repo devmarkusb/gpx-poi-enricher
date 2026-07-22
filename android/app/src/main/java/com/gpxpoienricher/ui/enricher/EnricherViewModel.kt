@@ -180,8 +180,10 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
         val ctx = getApplication<Application>()
         val workDir = GpxApp.gpxWorkDir().apply { mkdirs() }
         val tag = workTag(inputUri, profileId)
-        val inWork = File(inputWorkPath ?: workDir, "enrich-in-$tag.gpx")
-        val outWork = File(outputWorkPath ?: workDir, "enrich-out-$tag.gpx")
+        val inWork =
+            if (inputWorkPath != null) File(inputWorkPath) else File(workDir, "enrich-in-$tag.gpx")
+        val outWork =
+            if (outputWorkPath != null) File(outputWorkPath) else File(workDir, "enrich-out-$tag.gpx")
 
         if (!resume) {
             ctx.contentResolver.openInputStream(inputUri)!!.use { it.copyTo(inWork.outputStream()) }
