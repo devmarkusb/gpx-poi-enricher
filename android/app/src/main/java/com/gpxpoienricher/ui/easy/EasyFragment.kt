@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import com.google.android.material.snackbar.Snackbar
+import com.gpxpoienricher.MainActivity
 import com.gpxpoienricher.R
 import com.gpxpoienricher.data.GuiStatePreferences
 import com.gpxpoienricher.databinding.FragmentEasyBinding
@@ -26,6 +27,7 @@ class EasyFragment : Fragment() {
     private val vm: EasyViewModel by viewModels()
 
     private var profileFromPrefsApplied = false
+    private var wasRunning = false
 
     private var pendingGenerate: (() -> Unit)? = null
 
@@ -82,6 +84,13 @@ class EasyFragment : Fragment() {
             binding.btnGenerate.isEnabled = !running
             binding.btnCancel.isEnabled = running
             binding.progressBar.visibility = if (running) View.VISIBLE else View.GONE
+
+            val finishedRun = wasRunning && !running &&
+                vm.result.value != null && vm.canResume.value != true
+            if (finishedRun) {
+                (activity as? MainActivity)?.onEnrichmentTaskCompleted()
+            }
+            wasRunning = running
         }
 
         vm.logLines.observe(viewLifecycleOwner) { lines ->

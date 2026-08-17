@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import com.google.android.material.snackbar.Snackbar
+import com.gpxpoienricher.MainActivity
 import com.gpxpoienricher.data.GuiStatePreferences
 import com.gpxpoienricher.databinding.FragmentEnricherBinding
 import com.gpxpoienricher.R
@@ -23,6 +24,8 @@ class EnricherFragment : Fragment() {
     private val viewModel: EnricherViewModel by viewModels()
 
     private var profileFromPrefsApplied = false
+    private var wasRunning = false
+    private var cancelRequested = false
 
     private val openInput = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
@@ -90,6 +93,13 @@ class EnricherFragment : Fragment() {
             binding.btnRun.isEnabled = !running
             binding.btnCancel.isEnabled = running
             binding.progressBar.visibility = if (running) View.VISIBLE else View.GONE
+
+            val finishedRun = wasRunning && !running && !cancelRequested &&
+                viewModel.canResume.value != true
+            if (finishedRun) {
+                (activity as? MainActivity)?.onEnrichmentTaskCompleted()
+            }
+            wasRunning = running
         }
 
         viewModel.logLines.observe(viewLifecycleOwner) { lines ->
@@ -128,10 +138,14 @@ class EnricherFragment : Fragment() {
         binding.btnRun.setOnClickListener {
             val maxKm = binding.editMaxKm.text?.toString()?.toDoubleOrNull()
             val sampleKm = binding.editSampleKm.text?.toString()?.toDoubleOrNull()
+            cancelRequested = false
             viewModel.run(binding.profileSpinner.selectedItemPosition, maxKm, sampleKm)
         }
 
-        binding.btnCancel.setOnClickListener { viewModel.cancel() }
+        binding.btnCancel.setOnClickListener {
+            cancelRequested = true
+            viewModel.cancel()
+        }
     }
 
     override fun onResume() {
