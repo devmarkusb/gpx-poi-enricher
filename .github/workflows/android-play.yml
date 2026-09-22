@@ -165,8 +165,7 @@ jobs:
           path: |
             android/app/build/outputs/bundle/release/*.aab
             android/app/build/outputs/apk/release/*.apk
-          retention-days: 14
-
+          retention-days: 7
       - name: Attach AAB and APK to GitHub Release (tag builds only)
         if: ${{ github.ref_type == 'tag' && !(github.event_name == 'workflow_dispatch' && inputs.metadata_only) }}
         env:
