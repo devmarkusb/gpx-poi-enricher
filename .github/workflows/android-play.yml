@@ -157,15 +157,6 @@ jobs:
           chmod +x gradlew
           ./gradlew --no-daemon bundleRelease assembleRelease
 
-      - name: Upload build artifacts
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.metadata_only) }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: gpx-poi-enricher-android-release
-          path: |
-            android/app/build/outputs/bundle/release/*.aab
-            android/app/build/outputs/apk/release/*.apk
-          retention-days: 7
       - name: Attach AAB and APK to GitHub Release (tag builds only)
         if: ${{ github.ref_type == 'tag' && !(github.event_name == 'workflow_dispatch' && inputs.metadata_only) }}
         env:
