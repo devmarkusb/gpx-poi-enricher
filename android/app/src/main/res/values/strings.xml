@@ -11,6 +11,10 @@
 
     <!-- Labels -->
     <string name="label_input_gpx">Input GPX File (with track)</string>
+    <string name="label_point_input">Point or Google Maps link</string>
+    <string name="hint_point_input">LAT,LON or Maps link</string>
+    <string name="mode_track_search">Track</string>
+    <string name="mode_point_search">Point</string>
     <string name="label_output_gpx">Output GPX File</string>
     <string name="label_profile">Search Profile</string>
     <string name="label_overrides">Optional Overrides (leave blank to use profile defaults)</string>

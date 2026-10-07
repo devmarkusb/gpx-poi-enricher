@@ -83,8 +83,8 @@ def detect_country_segments(
                 cc = reverse_country_code(pt[0], pt[1], session)
                 if cc:
                     last_cc = cc
-            except requests.RequestException as exc:
-                print(f"Reverse geocoding failed for {pt}: {exc}", file=sys.stderr)
+            except requests.RequestException:
+                print("Reverse geocoding failed.", file=sys.stderr)
 
             last_rev = pt
             time.sleep(sleep_between_calls)

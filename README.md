@@ -1,6 +1,6 @@
 # gpx-poi-enricher
 
-**CLI tools and a desktop GUI for turning Google Maps directions into routed GPX tracks and POI waypoint files.**
+**CLI tools and apps for finding OpenStreetMap POIs along a track or around a Google Maps place.**
 
 [![CI][badge-ci]][ci]
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
@@ -33,16 +33,10 @@
 ## The Pipeline
 
 ```
-Google Maps URL
-      │
-      ▼
- maps-to-gpx          ← directions URL → routed GPX track
-      │
-      ▼
-gpx-split-waypoints   ← optional: evenly-spaced split markers
-      │
-      ▼
-gpx-poi-enricher      ← OpenStreetMap POIs along the track
+Google Maps directions ── maps-to-gpx ── routed GPX ─┐
+                                                     ├─ gpx-poi-enricher ── POI waypoints
+Track GPX ──────────────────────────────────────────┤
+Google Maps place / coordinates ────────────────────┘
       │
       ▼
  waypoints.gpx        ← Garmin / OsmAnd / Google My Maps <https://www.google.com/mymaps>
@@ -59,10 +53,11 @@ All three commands install together and can be run alone or chained. Split and P
 - **`maps-to-gpx`** — Google Maps URL (incl. `maps.app.goo.gl`) → routed GPX via Nominatim + public
   OSRM; custom base URL via `OSRM_BASE_URL` or `--osrm-base-url`. No API keys for defaults.
 - **`gpx-split-waypoints`** — evenly spaced split `<wpt>` markers for waypoint-limited apps.
-- **`gpx-poi-enricher`** — OSM POIs along a track; **10** curated YAML profiles plus a **POI
-  catalog** (~95 common types); **`--quick`** for sparse smoke tests.
-- **GUI** (`gpx-poi-enricher-gui`) — **Easy**: URL → GPX(s) → POIs; **Expert**: CLI tools in tabs;
+- **`gpx-poi-enricher`** — OSM POIs along a track or around a point; **10** curated YAML profiles
+  plus a **POI catalog** (~95 common types); **`--quick`** for sparse smoke tests.
+- **GUI** (`gpx-poi-enricher-gui`) — **Easy**: URL → GPX(s) → POIs; **Expert**: track or point search;
   **Profiles**: add POI types from the built-in catalog.
+- **Android app** — POI Enricher accepts a track GPX or a point/Maps link.
 - Country-aware **`terms`** (`DE`, `FR`, `ES`, `EN`); Overpass mirrors with retries; per-profile
   defaults overridable on the CLI; custom YAML via **`GPX_POI_PROFILES_DIR`**.
 
@@ -126,8 +121,8 @@ Overpass batch.
 
 **Expert** — POI Enricher, Split Waypoints, Maps → GPX, and **Profiles** tabs (same CLIs; Maps tab
 supports multiple URLs like Easy). **Profiles → Add from catalog…** adds common OSM POI types
-(museums, pharmacies, viewpoints, …) as editable user profiles. Long-running work is off the UI
-thread.
+(museums, pharmacies, viewpoints, …) as editable user profiles. POI Enricher accepts a track GPX
+or a point/Maps link. Long-running work is off the UI thread.
 
 ---
 
@@ -174,22 +169,28 @@ gpx-split-waypoints route.gpx route-split.gpx 5   # 5 segments → 4 waypoints
 
 ## Command: gpx-poi-enricher
 
-Track GPX in → waypoints-only POI GPX out. Run `gpx-poi-enricher --help` for all flags.
+Track GPX or point in → waypoints-only POI GPX out. A point may be `LAT,LON` or a Google Maps
+place link. Run `gpx-poi-enricher --help` for all flags.
 
 - `--profile` — required unless `--list-profiles`
-- `--max-km` — max distance from track to keep a POI
-- `--sample-km` — sampling step along the track
+- `--max-km` — max distance from track, or radius around a point
+- `--sample-km` — sampling step along a track (unused for a point)
+- `--output` — output GPX path with `--point`
 - `--batch-size` — sample points per Overpass request
-- `--country-sample-km` — Nominatim spacing for country detection (default **40**; **500** with
+- `--country-sample-km` — spacing between track country lookups (default **40**; **500** with
   `--quick`)
+- `--point` — `LAT,LON` or a Google Maps place link; pair with `--output`
 - `--progress-interval` — stderr progress in seconds (`0` off; default `5`)
-- `--verbose` — verbose Overpass error bodies
+- `--verbose` — verbose Overpass error bodies (track searches only)
 - `--list-profiles` — list profiles and defaults, then exit
-- `--quick` — sparse defaults (~500 km sample/country, 1 km radius) unless overrides are set
+- `--quick` — sparse track defaults and a 1 km radius (including point searches), unless overridden
 
 ```bash
 gpx-poi-enricher route.gpx camping.gpx --profile camping
 gpx-poi-enricher route.gpx playgrounds.gpx --profile playground --max-km 5
+gpx-poi-enricher --point '52.038993,13.748653' --output aquariums.gpx --profile aquarium
+gpx-poi-enricher --point 'https://maps.app.goo.gl/JDocHptvdByZ1WZSA' \
+  --output aquariums.gpx --profile aquarium
 gpx-poi-enricher --list-profiles
 gpx-poi-enricher route.gpx probe.gpx --profile camping --quick
 ```

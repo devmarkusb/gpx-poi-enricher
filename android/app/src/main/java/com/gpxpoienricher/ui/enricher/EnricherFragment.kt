@@ -57,6 +57,11 @@ class EnricherFragment : Fragment() {
         val ctx = requireContext()
         binding.editMaxKm.setText(GuiStatePreferences.readEnricherMaxKm(ctx))
         binding.editSampleKm.setText(GuiStatePreferences.readEnricherSampleKm(ctx))
+        binding.editPointInput.setText(GuiStatePreferences.readEnricherPointInput(ctx))
+        if (GuiStatePreferences.readEnricherPointMode(ctx)) {
+            binding.radioPointSearch.isChecked = true
+        }
+        updateSearchMode()
         GuiStatePreferences.readEnricherInputUri(ctx)?.let { s ->
             runCatching { Uri.parse(s) }.getOrNull()?.let { viewModel.setInputFile(it) }
         }
@@ -92,6 +97,9 @@ class EnricherFragment : Fragment() {
         viewModel.isRunning.observe(viewLifecycleOwner) { running ->
             binding.btnRun.isEnabled = !running
             binding.btnCancel.isEnabled = running
+            val modeEnabled = !running && viewModel.canResume.value != true
+            binding.radioTrackSearch.isEnabled = modeEnabled
+            binding.radioPointSearch.isEnabled = modeEnabled
             binding.progressBar.visibility = if (running) View.VISIBLE else View.GONE
 
             val finishedRun = wasRunning && !running && !cancelRequested &&
@@ -121,6 +129,9 @@ class EnricherFragment : Fragment() {
             binding.btnRun.text = getString(
                 if (resume) R.string.btn_resume_enrichment else R.string.btn_run,
             )
+            val modeEnabled = !resume && viewModel.isRunning.value != true
+            binding.radioTrackSearch.isEnabled = modeEnabled
+            binding.radioPointSearch.isEnabled = modeEnabled
         }
 
         binding.btnBatterySettings.setOnClickListener {
@@ -139,8 +150,18 @@ class EnricherFragment : Fragment() {
             val maxKm = binding.editMaxKm.text?.toString()?.toDoubleOrNull()
             val sampleKm = binding.editSampleKm.text?.toString()?.toDoubleOrNull()
             cancelRequested = false
-            viewModel.run(binding.profileSpinner.selectedItemPosition, maxKm, sampleKm)
+            val pointMode = binding.radioPointSearch.isChecked
+            val pointInput = binding.editPointInput.text?.toString().orEmpty()
+            viewModel.run(
+                binding.profileSpinner.selectedItemPosition,
+                maxKm,
+                sampleKm,
+                pointMode,
+                pointInput,
+            )
         }
+
+        binding.searchModeGroup.setOnCheckedChangeListener { _, _ -> updateSearchMode() }
 
         binding.btnCancel.setOnClickListener {
             cancelRequested = true
@@ -164,6 +185,8 @@ class EnricherFragment : Fragment() {
                 viewModel.profileIdAtSpinnerIndex(b.profileSpinner.selectedItemPosition),
                 b.editMaxKm.text?.toString() ?: "",
                 b.editSampleKm.text?.toString() ?: "",
+                b.radioPointSearch.isChecked,
+                b.editPointInput.text?.toString().orEmpty(),
             )
         }
         super.onStop()
@@ -172,5 +195,12 @@ class EnricherFragment : Fragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
+    }
+
+    private fun updateSearchMode() {
+        val pointMode = binding.radioPointSearch.isChecked
+        binding.trackInputCard.visibility = if (pointMode) View.GONE else View.VISIBLE
+        binding.pointInputCard.visibility = if (pointMode) View.VISIBLE else View.GONE
+        binding.layoutSampleKm.visibility = if (pointMode) View.GONE else View.VISIBLE
     }
 }

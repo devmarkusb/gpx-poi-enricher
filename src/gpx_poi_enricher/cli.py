@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .enricher import enrich_gpx_file
+from .enricher import enrich_gpx_file, enrich_point_file
 from .profiles import load_all_profiles, load_profile
 
 
@@ -29,22 +29,39 @@ def _build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="gpx-poi-enricher",
         description=(
-            "Enrich a GPX track with Points of Interest from OpenStreetMap.\n\n"
+            "Search around a GPX track or point for Points of Interest from OpenStreetMap.\n\n"
             "Examples:\n"
             "  gpx-poi-enricher route.gpx camping.gpx --profile camping\n"
             "  gpx-poi-enricher route.gpx playgrounds.gpx --profile playground --max-km 5\n"
+            "  gpx-poi-enricher --point '52.038993,13.748653' --output nearby.gpx --profile aquarium\n"
             "  gpx-poi-enricher --list-profiles"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument("input_gpx", nargs="?", help="Input GPX file with a track")
     ap.add_argument("output_gpx", nargs="?", help="Output GPX file (waypoints only)")
-    ap.add_argument("--profile", help="Profile id, e.g. camping or playground (case-insensitive)")
     ap.add_argument(
-        "--max-km", type=float, default=None, help="Override max distance from track (km)"
+        "--point",
+        metavar="LAT,LON|MAPS_URL",
+        help="Search around coordinates or a Google Maps place link",
     )
     ap.add_argument(
-        "--sample-km", type=float, default=None, help="Override track sampling interval (km)"
+        "--output",
+        dest="point_output_gpx",
+        help="Output GPX path when using --point",
+    )
+    ap.add_argument("--profile", help="Profile id, e.g. camping or playground (case-insensitive)")
+    ap.add_argument(
+        "--max-km",
+        type=float,
+        default=None,
+        help="Override max distance from track or radius around a point (km)",
+    )
+    ap.add_argument(
+        "--sample-km",
+        type=float,
+        default=None,
+        help="Override track sampling interval (unused with --point)",
     )
     ap.add_argument(
         "--batch-size", type=int, default=None, help="Override Overpass query batch size"
@@ -53,7 +70,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--country-sample-km",
         type=float,
         default=None,
-        help="Min distance (km) between Nominatim reverse-geocode calls (default: 40)",
+        help="Min spacing (km) between track country lookups (default: 40)",
     )
     ap.add_argument(
         "--progress-interval",
@@ -62,14 +79,18 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="SEC",
         help="Print progress to stderr every SEC seconds (default: 5; 0 = off)",
     )
-    ap.add_argument("--verbose", action="store_true", help="Print verbose Overpass error bodies")
+    ap.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print Overpass error bodies (track searches only)",
+    )
     ap.add_argument("--list-profiles", action="store_true", help="List built-in profiles and exit")
     ap.add_argument(
         "--quick",
         action="store_true",
         help=(
-            "Smoke-test mode: sparse sampling (500 km), tiny search radius (1 km), "
-            "country re-detection every 500 km. Produces results in seconds. "
+            "Smoke-test mode: 1 km radius; tracks also use sparse sampling/country checks (500 km). "
+            "Produces results in seconds. "
             "Individual --sample-km / --max-km / --country-sample-km still override."
         ),
     )
@@ -80,7 +101,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=True,
         help=(
             "After each Overpass batch, overwrite the output GPX with POIs found so far "
-            "(same file as the final result), so partial results survive interruptions. "
+            "for track searches (same file as the final result), so partial results survive interruptions. "
             "Enabled by default; pass --no-checkpoint-each-batch to disable."
         ),
     )
@@ -101,11 +122,21 @@ def main() -> None:
         _list_profiles()
         return
 
-    if not args.input_gpx or not args.output_gpx or not args.profile:
-        ap.error(
-            "input_gpx, output_gpx, and --profile are required unless --list-profiles is given"
-        )
+    if args.point is not None:
+        if args.input_gpx or args.output_gpx:
+            ap.error("With --point, use --output FILE and omit positional GPX paths")
+        if not args.point_output_gpx or not args.profile:
+            ap.error("--point requires --output FILE and --profile")
+    else:
+        if args.point_output_gpx:
+            ap.error("--output is only used with --point")
+        if not args.input_gpx or not args.output_gpx or not args.profile:
+            ap.error(
+                "input_gpx, output_gpx, and --profile are required unless --point or "
+                "--list-profiles is given"
+            )
 
+    sample_km_explicit = args.sample_km is not None
     profile_id = args.profile.strip().lower()
     try:
         load_profile(profile_id)  # validate early
@@ -120,6 +151,22 @@ def main() -> None:
             args.max_km = _QUICK_MAX_KM
         if args.country_sample_km is None:
             args.country_sample_km = _QUICK_COUNTRY_KM
+
+    if args.point is not None:
+        if sample_km_explicit:
+            print("Note: --sample-km is ignored for a point search.", file=sys.stderr)
+        if args.verbose:
+            print("Note: verbose response bodies are disabled for point searches.", file=sys.stderr)
+        enrich_point_file(
+            args.point,
+            args.point_output_gpx,
+            profile_id,
+            max_km=args.max_km,
+            batch_size=args.batch_size,
+            progress_interval=args.progress_interval,
+            verbose=args.verbose,
+        )
+        return
 
     kwargs = {
         "max_km": args.max_km,

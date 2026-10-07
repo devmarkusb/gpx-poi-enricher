@@ -88,16 +88,34 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
         _canResume.value = false
     }
 
-    fun run(profileIndex: Int, maxKm: Double?, sampleKm: Double?) {
-        if (resumeState != null) {
+    fun run(
+        profileIndex: Int,
+        maxKm: Double?,
+        sampleKm: Double?,
+        pointMode: Boolean,
+        pointInput: String,
+    ) {
+        if (resumeState != null && !pointMode) {
             resume()
+            return
+        }
+        if (pointMode && resumeState != null) {
+            _snackbar.value = "Resume the interrupted track search first"
             return
         }
 
         val profile = _profiles.value?.getOrNull(profileIndex)
             ?: run { _snackbar.value = "No profile selected"; return }
-        val inputUri = _inputUri.value ?: run { _snackbar.value = "Select an input GPX file"; return }
         val outputUri = _outputUri.value ?: run { _snackbar.value = "Select an output file"; return }
+        val inputUri = if (pointMode) null else _inputUri.value
+        if (!pointMode && inputUri == null) {
+            _snackbar.value = "Select an input GPX file"
+            return
+        }
+        if (pointMode && pointInput.isBlank()) {
+            _snackbar.value = "Enter coordinates or a Google Maps link"
+            return
+        }
 
         job = viewModelScope.launch {
             _isRunning.value = true
@@ -109,15 +127,19 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
 
             try {
                 withContext(Dispatchers.IO) {
-                    runEnrichment(
-                        profile.id,
-                        inputUri,
-                        outputUri,
-                        maxKm,
-                        sampleKm,
-                        resume = false,
-                        log = ::log,
-                    )
+                    if (pointMode) {
+                        runPointEnrichment(profile.id, pointInput.trim(), outputUri, maxKm, ::log)
+                    } else {
+                        runEnrichment(
+                            profile.id,
+                            inputUri!!,
+                            outputUri,
+                            maxKm,
+                            sampleKm,
+                            resume = false,
+                            log = ::log,
+                        )
+                    }
                 }
             } catch (e: CancellationException) {
                 log("Cancelled.")
@@ -229,10 +251,42 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
         _snackbar.postValue("Done! Found $count POIs.")
     }
 
+    private fun runPointEnrichment(
+        profileId: String,
+        location: String,
+        outputUri: Uri,
+        maxKm: Double?,
+        log: (String) -> Unit,
+    ) {
+        val ctx = getApplication<Application>()
+        val workDir = GpxApp.gpxWorkDir().apply { mkdirs() }
+        val outWork = File(workDir, "point-out-${workTag(location, profileId)}.gpx")
+        val resultJson = Python.getInstance().getModule("gpx_bridge").callAttr(
+            "enrich_point",
+            location,
+            outWork.absolutePath,
+            profileId,
+            GpxApp.extractProfiles().absolutePath,
+            maxKm,
+            LogCallback(log),
+        ).toString()
+
+        val obj = org.json.JSONObject(resultJson)
+        val count = obj.getInt("poi_count")
+        ctx.contentResolver.openOutputStream(outputUri)!!.use { outWork.inputStream().copyTo(it) }
+        outWork.delete()
+        log("Done! Wrote $count waypoints.")
+        _snackbar.postValue("Done! Found $count POIs.")
+    }
+
     private fun workTag(inputUri: Uri, profileId: String): String {
         val name = fileName(inputUri) ?: inputUri.toString()
+        return workTag(name, profileId)
+    }
+
+    private fun workTag(source: String, profileId: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
-            .digest("$name|$profileId".toByteArray())
+            .digest("$source|$profileId".toByteArray())
             .take(8)
             .joinToString("") { "%02x".format(it) }
         return "$profileId-$digest"

@@ -23,6 +23,8 @@ object GuiStatePreferences {
     private const val K_ENR_PROFILE = "enricher_profile_id"
     private const val K_ENR_MAX = "enricher_max_km"
     private const val K_ENR_SAMPLE = "enricher_sample_km"
+    private const val K_ENR_POINT_MODE = "enricher_point_mode"
+    private const val K_ENR_POINT = "enricher_point_input"
 
     private const val K_SPL_IN = "split_input_uri"
     private const val K_SPL_OUT = "split_output_uri"
@@ -91,6 +93,10 @@ object GuiStatePreferences {
 
     fun readEnricherSampleKm(ctx: Context): String = sp(ctx).getString(K_ENR_SAMPLE, "") ?: ""
 
+    fun readEnricherPointMode(ctx: Context): Boolean = sp(ctx).getBoolean(K_ENR_POINT_MODE, false)
+
+    fun readEnricherPointInput(ctx: Context): String = sp(ctx).getString(K_ENR_POINT, "") ?: ""
+
     fun writeEnricher(
         ctx: Context,
         inputUri: String?,
@@ -98,6 +104,8 @@ object GuiStatePreferences {
         profileId: String?,
         maxKm: String,
         sampleKm: String,
+        pointMode: Boolean,
+        pointInput: String,
     ) {
         val e = sp(ctx).edit()
         if (inputUri.isNullOrBlank()) e.remove(K_ENR_IN) else e.putString(K_ENR_IN, inputUri)
@@ -105,6 +113,8 @@ object GuiStatePreferences {
         if (profileId.isNullOrBlank()) e.remove(K_ENR_PROFILE) else e.putString(K_ENR_PROFILE, profileId)
         e.putString(K_ENR_MAX, maxKm)
         e.putString(K_ENR_SAMPLE, sampleKm)
+        e.putBoolean(K_ENR_POINT_MODE, pointMode)
+        e.putString(K_ENR_POINT, pointInput)
         e.apply()
     }
 

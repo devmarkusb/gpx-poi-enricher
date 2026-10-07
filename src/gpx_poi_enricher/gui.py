@@ -46,7 +46,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .enricher import EnrichInterrupted, enrich_gpx_file, enrich_tracks_to_poi_gpx
+from .enricher import (
+    EnrichInterrupted,
+    enrich_gpx_file,
+    enrich_point_file,
+    enrich_tracks_to_poi_gpx,
+)
 from .gui_profiles import ProfilesManagerTab
 from .maps_to_gpx_cli import (
     DEFAULT_OUTPUT_STEM,
@@ -236,16 +241,18 @@ class _EnricherWorker(QThread):
 
     def __init__(
         self,
-        input_path: str,
+        input_path: str | None,
         output_path: str,
         profile_id: str,
         cancel_event: threading.Event,
         *,
+        point_location: str | None = None,
         resume: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__()
         self._input = input_path
+        self._point_location = point_location
         self._output = output_path
         self._profile_id = profile_id
         self._cancel_event = cancel_event
@@ -259,15 +266,24 @@ class _EnricherWorker(QThread):
         old_stderr = sys.stderr
         sys.stderr = capture  # type: ignore[assignment]
         try:
-            items = enrich_gpx_file(
-                self._input,
-                self._output,
-                self._profile_id,
-                cancel_event=self._cancel_event,
-                checkpoint_each_batch=True,
-                resume=self._resume,
-                **self._kwargs,
-            )
+            if self._point_location is not None:
+                items = enrich_point_file(
+                    self._point_location,
+                    self._output,
+                    self._profile_id,
+                    cancel_event=self._cancel_event,
+                    **self._kwargs,
+                )
+            else:
+                items = enrich_gpx_file(
+                    self._input,
+                    self._output,
+                    self._profile_id,
+                    cancel_event=self._cancel_event,
+                    checkpoint_each_batch=True,
+                    resume=self._resume,
+                    **self._kwargs,
+                )
             capture.flush()
             self.finished.emit(items)
         except EnrichInterrupted as exc:
@@ -1012,13 +1028,24 @@ class _EnricherTab(QWidget):
         root = QVBoxLayout(self)
         root.setSpacing(6)
 
-        # Files
-        files_box = QGroupBox("Files")
+        # Search source
+        files_box = QGroupBox("Search")
         fl = QFormLayout(files_box)
+        self._source_combo = QComboBox()
+        self._source_combo.addItem("Track GPX", "track")
+        self._source_combo.addItem("Point / Maps link", "point")
         input_w, self._input_edit = _file_row("Open Input GPX", "route.gpx")
+        self._point_edit = QLineEdit()
+        self._point_edit.setPlaceholderText("LAT,LON or Google Maps link")
+        self._source_label = QLabel("Input GPX:")
+        self._source_stack = QStackedWidget()
+        self._source_stack.addWidget(input_w)
+        self._source_stack.addWidget(self._point_edit)
         output_w, self._output_edit = _file_row("Save Output GPX", "pois.gpx", save=True)
-        fl.addRow("Input GPX:", input_w)
+        fl.addRow("Search around:", self._source_combo)
+        fl.addRow(self._source_label, self._source_stack)
         fl.addRow("Output GPX:", output_w)
+        self._source_combo.currentIndexChanged.connect(self._on_source_changed)
         root.addWidget(files_box)
 
         # Profile
@@ -1083,10 +1110,14 @@ class _EnricherTab(QWidget):
         )
         self._batch_size.setMinimumWidth(_int_w)
 
-        param_l.addRow("Max distance:", self._max_km)
-        param_l.addRow("Sample interval:", self._sample_km)
-        param_l.addRow("Batch size:", self._batch_size)
-        param_l.addRow("Country sample interval:", self._country_km)
+        self._max_label = QLabel("Max distance:")
+        self._sample_label = QLabel("Sample interval:")
+        self._batch_label = QLabel("Batch size:")
+        self._country_label = QLabel("Country sample interval:")
+        param_l.addRow(self._max_label, self._max_km)
+        param_l.addRow(self._sample_label, self._sample_km)
+        param_l.addRow(self._batch_label, self._batch_size)
+        param_l.addRow(self._country_label, self._country_km)
         param_l.addRow("", self._verbose_cb)
         root.addWidget(params_box)
 
@@ -1103,6 +1134,7 @@ class _EnricherTab(QWidget):
 
         self._run_btn.clicked.connect(self._run)
         self._cancel_btn.clicked.connect(self._cancel)
+        self._on_source_changed()
 
         # Progress
         self._progress = QProgressBar()
@@ -1167,15 +1199,47 @@ class _EnricherTab(QWidget):
                 if not p.early_cancel_if_no_pois
                 else f"after {p.early_cancel_after_batches} batches"
             )
-            self._profile_info.setText(
-                f"max_km={p.max_km}  sample_km={p.sample_km}  "
-                f"batch_size={p.batch_size}  retries={p.retries}  early_cancel={ec}"
-            )
+            if self._source_combo.currentData() == "point":
+                self._profile_info.setText(
+                    f"max_km={p.max_km}  retries={p.retries}  early_cancel={ec}"
+                )
+            else:
+                self._profile_info.setText(
+                    f"max_km={p.max_km}  sample_km={p.sample_km}  "
+                    f"batch_size={p.batch_size}  retries={p.retries}  early_cancel={ec}"
+                )
+
+    def _on_source_changed(self, _index: int = 0) -> None:
+        point_mode = self._source_combo.currentData() == "point"
+        self._source_stack.setCurrentIndex(1 if point_mode else 0)
+        self._source_label.setText("Point / Maps link:" if point_mode else "Input GPX:")
+        self._max_label.setText("Radius:" if point_mode else "Max distance:")
+        self._max_km.setToolTip(
+            "Maximum distance from the point to include a POI"
+            if point_mode
+            else "Maximum distance from track to include a POI"
+        )
+        for widget in (
+            self._sample_label,
+            self._sample_km,
+            self._batch_label,
+            self._batch_size,
+            self._country_label,
+            self._country_km,
+        ):
+            widget.setVisible(not point_mode)
+        self._verbose_cb.setVisible(not point_mode)
+        self._run_btn.setText("Search Point" if point_mode else "Run Enrichment")
+        self._on_profile_changed()
 
     # ── Run / Cancel ───────────────────────────────────────────────────────────
 
     def _run(self) -> None:
-        resume = self._resume_ctx is not None
+        point_mode_selected = self._source_combo.currentData() == "point"
+        resume = self._resume_ctx is not None and not point_mode_selected
+        if point_mode_selected:
+            self._resume_ctx = None
+        point_location: str | None = None
         if resume:
             inp = str(self._resume_ctx["input_path"])
             out = str(self._resume_ctx["output_path"])
@@ -1183,12 +1247,17 @@ class _EnricherTab(QWidget):
             kwargs = dict(self._resume_ctx["kwargs"])
             _append_log(self._log, "\n--- Resume ---")
         else:
-            inp = self._input_edit.text().strip()
+            point_mode = point_mode_selected
+            point_location = self._point_edit.text().strip() if point_mode else None
+            inp = None if point_mode else self._input_edit.text().strip()
             out = self._output_edit.text().strip()
             pid = self._profile_combo.currentData()
 
-            if not inp:
+            if not point_mode and not inp:
                 QMessageBox.warning(self, "Input required", "Please select an input GPX file.")
+                return
+            if point_mode and not point_location:
+                QMessageBox.warning(self, "Point required", "Enter coordinates or a Maps link.")
                 return
             if not out:
                 QMessageBox.warning(self, "Output required", "Please specify an output GPX file.")
@@ -1201,21 +1270,34 @@ class _EnricherTab(QWidget):
             self._table.setRowCount(0)
             kwargs = {
                 "max_km": self._max_km.value() or (1.0 if self._quick else None),
-                "sample_km": self._sample_km.value() or (500.0 if self._quick else None),
                 "batch_size": self._batch_size.value() or None,
                 "country_sample_km": self._country_km.value() if not self._quick else 500.0,
                 "progress_interval": 5.0,
                 "verbose": self._verbose_cb.isChecked(),
             }
+            if not point_mode:
+                kwargs["sample_km"] = self._sample_km.value() or (500.0 if self._quick else None)
+            else:
+                kwargs.pop("batch_size")
+                kwargs.pop("country_sample_km")
 
         self._progress.setRange(0, 0)  # pulsing / indeterminate
         self._status_lbl.setText("Resuming…" if resume else "Running…")
         self._run_btn.setEnabled(False)
         self._cancel_btn.setEnabled(True)
+        self._source_combo.setEnabled(False)
 
         self._cancel_event = threading.Event()
 
-        self._worker = _EnricherWorker(inp, out, pid, self._cancel_event, resume=resume, **kwargs)
+        self._worker = _EnricherWorker(
+            inp,
+            out,
+            pid,
+            self._cancel_event,
+            point_location=point_location,
+            resume=resume,
+            **kwargs,
+        )
         self._worker.log_message.connect(lambda t: _append_log(self._log, t))
         self._worker.finished.connect(self._on_done)
         self._worker.interrupted.connect(self._on_interrupted)
@@ -1231,7 +1313,10 @@ class _EnricherTab(QWidget):
 
     def _on_done(self, items: list) -> None:
         self._resume_ctx = None
-        self._run_btn.setText("Run Enrichment")
+        self._source_combo.setEnabled(True)
+        self._run_btn.setText(
+            "Search Point" if self._source_combo.currentData() == "point" else "Run Enrichment"
+        )
         self._progress.setRange(0, 1)
         self._progress.setValue(1)
         self._status_lbl.setText(f"Done — {len(items)} POI(s) written.")
@@ -1242,6 +1327,7 @@ class _EnricherTab(QWidget):
 
     def _on_interrupted(self, ctx: object) -> None:
         self._resume_ctx = dict(ctx)  # type: ignore[arg-type]
+        self._source_combo.setEnabled(False)
         self._run_btn.setText("Resume enrichment")
         self._progress.setRange(0, 1)
         self._progress.setValue(0)
@@ -1252,6 +1338,7 @@ class _EnricherTab(QWidget):
     def _on_error(self, msg: str) -> None:
         if self._resume_ctx is not None:
             return
+        self._source_combo.setEnabled(True)
         self._progress.setRange(0, 1)
         self._progress.setValue(0)
         self._status_lbl.setText("Error — see log.")

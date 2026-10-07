@@ -11,7 +11,12 @@ import threading
 
 import requests
 
-from gpx_poi_enricher.enricher import EnrichInterrupted, enrich_gpx_file, enrich_tracks_to_poi_gpx
+from gpx_poi_enricher.enricher import (
+    EnrichInterrupted,
+    enrich_gpx_file,
+    enrich_point_file,
+    enrich_tracks_to_poi_gpx,
+)
 from gpx_poi_enricher.maps_to_gpx_cli import (
     _expand_url,
     _resolve_waypoints,
@@ -176,6 +181,36 @@ def enrich(
                     "profile_id": profile_id,
                 }
             )
+        finally:
+            sys.stderr.flush()
+            sys.stderr = old
+
+
+def enrich_point(
+    location: str,
+    output_path: str,
+    profile_id: str,
+    profiles_dir: str,
+    max_km,
+    log_callback,
+) -> str:
+    _cancel_event.clear()
+    kwargs = {"cancel_event": _cancel_event}
+    if max_km is not None:
+        kwargs["max_km"] = float(max_km)
+
+    with _stderr_lock:
+        old = sys.stderr
+        sys.stderr = _LogStream(log_callback)
+        try:
+            pois = enrich_point_file(
+                location,
+                output_path,
+                profile_id,
+                profiles_dir=pathlib.Path(profiles_dir),
+                **kwargs,
+            )
+            return json.dumps({"ok": True, "poi_count": len(pois)})
         finally:
             sys.stderr.flush()
             sys.stderr = old

@@ -25,6 +25,7 @@ from .gpx_utils import (
     remove_tracks_and_routes,
     sample_track_by_distance,
 )
+from .location import resolve_point_input
 from .overpass import build_overpass_queries, extract_candidates, query_overpass
 from .profiles import SearchProfile, load_profile
 from .progress import ProgressHeartbeat
@@ -146,6 +147,7 @@ def enrich_track(
     resume_after_batch: int = 0,
     initial_candidates: OrderedDict[tuple[float, float], dict[str, Any]] | None = None,
     on_batch_completed: Callable[[int, int], None] | None = None,
+    _target_label: str = "track",
 ) -> list[dict[str, Any]]:
     """Enrich a list of track points with nearby POIs from OpenStreetMap.
 
@@ -189,14 +191,26 @@ def enrich_track(
         raise ValueError("early_cancel_after_batches must be >= 1 when early cancel is enabled.")
 
     session = http_session or requests.Session()
-    sampled = sample_track_by_distance(track_points, _sample_km)
-
-    print(f"Loaded {len(track_points)} track points.", file=sys.stderr)
-    print(f"Sampled to {len(sampled)} points at ~{_sample_km} km spacing.", file=sys.stderr)
-    print(f"Profile: {profile.id} ({profile.description})", file=sys.stderr)
-    print(
-        f"Using max_km={_max_km}, sample_km={_sample_km}, batch_size={_batch_size}", file=sys.stderr
+    sampled = (
+        track_points
+        if _target_label == "point"
+        else sample_track_by_distance(track_points, _sample_km)
     )
+
+    if _target_label == "point":
+        print("Searching around a point.", file=sys.stderr)
+        print("Track sampling is unused for a point search.", file=sys.stderr)
+    else:
+        print(f"Loaded {len(track_points)} track points.", file=sys.stderr)
+        print(f"Sampled to {len(sampled)} points at ~{_sample_km} km spacing.", file=sys.stderr)
+    print(f"Profile: {profile.id} ({profile.description})", file=sys.stderr)
+    if _target_label == "point":
+        print(f"Using radius={_max_km} km, batch_size={_batch_size}", file=sys.stderr)
+    else:
+        print(
+            f"Using max_km={_max_km}, sample_km={_sample_km}, batch_size={_batch_size}",
+            file=sys.stderr,
+        )
 
     progress_state: dict[str, Any] = {
         "phase": "nominatim",
@@ -210,7 +224,9 @@ def enrich_track(
 
     use_progress = progress_interval > 0
 
-    if use_progress:
+    if not profile.terms:
+        country_segments = OrderedDict([("EN", sampled)])
+    elif use_progress:
         with ProgressHeartbeat(progress_state, interval=progress_interval):
             country_segments = detect_country_segments(
                 sampled, session, min_spacing_km=country_sample_km, progress=progress_state
@@ -300,6 +316,46 @@ def enrich_track(
         _run_overpass_batches()
 
     return _sorted_poi_items(all_candidates)
+
+
+def enrich_point(
+    point: tuple[float, float],
+    profile: SearchProfile,
+    **kwargs: Any,
+) -> list[dict[str, Any]]:
+    """Search within the profile radius of one ``(lat, lon)`` point."""
+    lat, lon = point
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise ValueError(
+            "Point coordinates must be within latitude -90..90 and longitude -180..180."
+        )
+    point_kwargs = {**kwargs, "verbose": False}
+    return enrich_track([(lat, lon)], profile, _target_label="point", **point_kwargs)
+
+
+def enrich_point_file(
+    location: str,
+    output_path: str | pathlib.Path,
+    profile_id: str,
+    profiles_dir: pathlib.Path | None = None,
+    **kwargs: Any,
+) -> list[dict[str, Any]]:
+    """Search around coordinates or a Google Maps link and write a waypoints-only GPX."""
+    profile = load_profile(profile_id, profiles_dir)
+    point = resolve_point_input(location, session=kwargs.get("http_session"))
+    items = enrich_point(point, profile, **kwargs)
+
+    root = ET.Element(
+        f"{{{GPX_NS}}}gpx",
+        {"version": "1.1", "creator": "gpx-poi-enricher"},
+    )
+    add_waypoints_to_gpx(root, items, symbol=profile.symbol, type_label=profile.description)
+    outp = pathlib.Path(output_path)
+    outp.parent.mkdir(parents=True, exist_ok=True)
+    ET.ElementTree(root).write(str(outp), encoding="utf-8", xml_declaration=True)
+    print(f"\nAdding {len(items)} waypoints.", file=sys.stderr)
+    print(f"Wrote: {outp}", file=sys.stderr)
+    return items
 
 
 def enrich_gpx_file(
