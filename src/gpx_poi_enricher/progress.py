@@ -82,6 +82,7 @@ class ProgressHeartbeat:
         s = self.state
         phase = s.get("phase", "?")
         pois = s.get("pois_found", 0)
+        pois_summary = f"confirmed POIs in completed batches: {pois}"
         wait = f" · {int(elapsed_s)}s on this step" if elapsed_s >= 1.0 else ""
 
         if phase == "nominatim":
@@ -90,7 +91,7 @@ class ProgressHeartbeat:
             rv = s.get("nominatim_rev_calls", 0)
             return (
                 f"[progress] nominatim: sample {si + 1}/{st}, "
-                f"reverse-geocode calls completed: {rv} | pois so far: {pois}{wait}"
+                f"reverse-geocode calls completed: {rv} | {pois_summary}{wait}"
             )
 
         if phase == "overpass":
@@ -102,10 +103,10 @@ class ProgressHeartbeat:
             att_s = f"{att}/{mx}" if att is not None and mx else "—"
             return (
                 f"[progress] overpass: batch {bcur}/{btot} ({cc}) | "
-                f"{host} attempt {att_s} | pois so far: {pois}{wait}"
+                f"{host} attempt {att_s} | {pois_summary}; current batch in progress{wait}"
             )
 
-        return f"[progress] {phase} | pois so far: {pois}{wait}"
+        return f"[progress] {phase} | {pois_summary}{wait}"
 
     def _run(self) -> None:
         while not self._stop.wait(self.interval):
