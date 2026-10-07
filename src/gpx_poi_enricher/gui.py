@@ -9,6 +9,7 @@ or:
 
 from __future__ import annotations
 
+import hashlib
 import pathlib
 import sys
 import threading
@@ -492,6 +493,7 @@ class _EasyWorker(QThread):
         split_segments: int = 0,
         *,
         resume_from: dict[str, Any] | None = None,
+        point_location: str | None = None,
     ) -> None:
         super().__init__()
         self._urls = urls
@@ -501,6 +503,7 @@ class _EasyWorker(QThread):
         self._quick = quick
         self._split_segments = split_segments
         self._resume_from = resume_from
+        self._point_location = point_location
 
     def _enrich_kwargs(self) -> dict[str, Any]:
         enrich_kwargs: dict[str, Any] = {"progress_interval": 5.0}
@@ -558,6 +561,21 @@ class _EasyWorker(QThread):
         session = requests.Session()
         enrich_kwargs = self._enrich_kwargs()
         try:
+            if self._point_location is not None:
+                digest = hashlib.sha256(self._point_location.encode()).hexdigest()[:8]
+                poi_path = pathlib.Path(self._output_dir) / f"point-{digest}-{self._profile_id}.gpx"
+                pois = enrich_point_file(
+                    self._point_location,
+                    str(poi_path),
+                    self._profile_id,
+                    cancel_event=self._cancel_event,
+                    **({"max_km": 1.0} if self._quick else {}),
+                )
+                capture.flush()
+                if not self._cancel_event.is_set():
+                    self.pois_done.emit([(str(poi_path), len(pois))])
+                self.finished.emit()
+                return
             if self._resume_from:
                 tracks_to_enrich = list(self._resume_from["tracks_to_enrich"])
                 start_at = int(self._resume_from["track_index"])
@@ -739,7 +757,15 @@ class _EasyTab(QWidget):
         root.setContentsMargins(12, 12, 12, 12)
 
         # URLs: primary + optional additional (detour) routes
-        url_box = QGroupBox("Google Maps directions URLs")
+        self._source_combo = QComboBox()
+        self._source_combo.addItem("Route", "track")
+        self._source_combo.addItem("Point / Maps link", "point")
+        root.addWidget(self._source_combo)
+        self._point_edit = QLineEdit()
+        self._point_edit.setPlaceholderText("LAT,LON or Google Maps place link")
+        self._point_edit.hide()
+        root.addWidget(self._point_edit)
+        url_box = self._url_box = QGroupBox("Google Maps directions URLs")
         url_l = QVBoxLayout(url_box)
         url_l.addWidget(QLabel("Primary route (required):"))
         self._url_edit = QLineEdit()
@@ -770,6 +796,9 @@ class _EasyTab(QWidget):
         cfg_l = QFormLayout(cfg_box)
         self._profile_combo = QComboBox()
         cfg_l.addRow("Profile:", self._profile_combo)
+        self._radius_hint = QLabel("Radius from profile")
+        self._radius_hint.hide()
+        cfg_l.addRow(self._radius_hint)
         self._milestone_parts = QSpinBox()
         self._milestone_parts.setRange(0, 9999)
         self._milestone_parts.setSpecialValueText("Off")
@@ -779,7 +808,8 @@ class _EasyTab(QWidget):
             "GPX named «stem»-milestones.gpx (1/N … N/N) next to it. Detour fragment files "
             "(«stem»-detour-NN.gpx) are skipped. Useful as checkmarks for orientation. 0 = off."
         )
-        cfg_l.addRow("Track milestones (parts):", self._milestone_parts)
+        self._milestone_label = QLabel("Track milestones (parts):")
+        cfg_l.addRow(self._milestone_label, self._milestone_parts)
         dir_w, self._output_dir_edit = _dir_row("Select Output Folder", str(pathlib.Path.home()))
         cfg_l.addRow("Output folder:", dir_w)
         root.addWidget(cfg_box)
@@ -795,6 +825,7 @@ class _EasyTab(QWidget):
         btn_row.addWidget(self._cancel_btn)
         root.addLayout(btn_row)
 
+        self._source_combo.currentIndexChanged.connect(self._on_source_changed)
         self._run_btn.clicked.connect(self._run)
         self._cancel_btn.clicked.connect(self._cancel)
 
@@ -832,6 +863,14 @@ class _EasyTab(QWidget):
         splitter.setSizes([360, 140])
         root.addWidget(splitter, 1)
 
+    def _on_source_changed(self) -> None:
+        point = self._source_combo.currentData() == "point"
+        self._url_box.setVisible(not point)
+        self._point_edit.setVisible(point)
+        self._milestone_parts.setVisible(not point)
+        self._milestone_label.setVisible(not point)
+        self._radius_hint.setVisible(point)
+
     def _load_profiles(self) -> None:
         self._profile_combo.clear()
         self._profiles = {}
@@ -849,7 +888,8 @@ class _EasyTab(QWidget):
 
     def _run(self) -> None:
         resume = self._resume_ctx is not None
-        primary = self._url_edit.text().strip()
+        point = self._source_combo.currentData() == "point"
+        primary = self._point_edit.text().strip() if point else self._url_edit.text().strip()
         extra_lines = [
             ln.strip() for ln in self._extra_urls_edit.toPlainText().splitlines() if ln.strip()
         ]
@@ -860,7 +900,11 @@ class _EasyTab(QWidget):
         if not resume:
             if not primary:
                 QMessageBox.warning(
-                    self, "URL required", "Please enter a primary Google Maps directions URL."
+                    self,
+                    "Input required",
+                    "Enter a point or Maps place link."
+                    if point
+                    else "Please enter a primary Google Maps directions URL.",
                 )
                 return
             if not pid:
@@ -887,6 +931,7 @@ class _EasyTab(QWidget):
         self._progress.setRange(0, 0)
         self._status_lbl.setText("Running…" if not resume else "Resuming…")
         self._run_btn.setEnabled(False)
+        self._source_combo.setEnabled(False)
         self._cancel_btn.setEnabled(True)
 
         self._cancel_event = threading.Event()
@@ -898,6 +943,7 @@ class _EasyTab(QWidget):
             self._quick,
             split_segments=self._milestone_parts.value(),
             resume_from=self._resume_ctx if resume else None,
+            point_location=primary if point else None,
         )
         self._worker.log_message.connect(lambda t: _append_log(self._log, t))
         self._worker.milestone_paths_ready.connect(self._on_milestone_paths_ready)
@@ -947,6 +993,7 @@ class _EasyTab(QWidget):
 
     def _on_done(self) -> None:
         self._resume_ctx = None
+        self._source_combo.setEnabled(True)
         self._run_btn.setText("Generate GPX")
         self._progress.setRange(0, 1)
         self._progress.setValue(1)
@@ -972,6 +1019,7 @@ class _EasyTab(QWidget):
             return
         self._progress.setRange(0, 1)
         self._progress.setValue(0)
+        self._source_combo.setEnabled(True)
         self._status_lbl.setText("Error — see log.")
         self._run_btn.setEnabled(True)
         self._cancel_btn.setEnabled(False)
@@ -981,6 +1029,8 @@ class _EasyTab(QWidget):
     def read_gui_settings(self, s: QSettings) -> None:
         s.beginGroup("easy")
         try:
+            self._source_combo.setCurrentIndex(1 if s.value("point_mode", False, type=bool) else 0)
+            self._point_edit.setText(s.value("point_input", "", type=str))
             self._url_edit.setText(s.value("primary_url", "", type=str))
             self._extra_urls_edit.setPlainText(s.value("extra_urls", "", type=str))
             _set_combo_profile_id(self._profile_combo, s.value("profile_id", "", type=str))
@@ -996,6 +1046,8 @@ class _EasyTab(QWidget):
     def write_gui_settings(self, s: QSettings) -> None:
         s.beginGroup("easy")
         try:
+            s.setValue("point_mode", self._source_combo.currentData() == "point")
+            s.setValue("point_input", self._point_edit.text())
             s.setValue("primary_url", self._url_edit.text())
             s.setValue("extra_urls", self._extra_urls_edit.toPlainText())
             pid = self._profile_combo.currentData()

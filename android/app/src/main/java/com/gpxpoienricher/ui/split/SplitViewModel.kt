@@ -2,13 +2,13 @@ package com.gpxpoienricher.ui.split
 
 import android.app.Application
 import android.net.Uri
-import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import com.chaquo.python.Python
 import com.gpxpoienricher.LogCallback
+import com.gpxpoienricher.io.documentName
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -41,8 +41,16 @@ class SplitViewModel(app: Application) : AndroidViewModel(app) {
 
     private var job: Job? = null
 
-    fun setInputFile(uri: Uri) { _inputUri.value = uri; _inputName.value = fileName(uri) }
-    fun setOutputFile(uri: Uri) { _outputUri.value = uri; _outputName.value = fileName(uri) }
+    fun setInputFile(uri: Uri) {
+        val name = fileName(uri)
+        _inputUri.value = uri.takeIf { name != null }
+        _inputName.value = name
+    }
+    fun setOutputFile(uri: Uri) {
+        val name = fileName(uri)
+        _outputUri.value = uri.takeIf { name != null }
+        _outputName.value = name
+    }
 
     fun run(segments: Int) {
         if (segments < 2) { _snackbar.value = "Segments must be at least 2"; return }
@@ -96,8 +104,5 @@ class SplitViewModel(app: Application) : AndroidViewModel(app) {
     fun snapshotOutputUri(): Uri? = _outputUri.value
 
     private fun fileName(uri: Uri): String? =
-        getApplication<Application>().contentResolver.query(uri, null, null, null, null)?.use {
-            val idx = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (it.moveToFirst() && idx >= 0) it.getString(idx) else null
-        }
+        documentName(getApplication<Application>().contentResolver, uri)
 }

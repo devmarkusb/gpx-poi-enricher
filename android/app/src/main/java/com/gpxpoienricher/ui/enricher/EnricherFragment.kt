@@ -39,7 +39,8 @@ class EnricherFragment : Fragment() {
     private val createOutput = registerForActivityResult(ActivityResultContracts.CreateDocument("application/gpx+xml")) { uri ->
         uri?.let {
             requireContext().contentResolver.takePersistableUriPermission(
-                it, android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             )
             viewModel.setOutputFile(it)
         }

@@ -2,13 +2,13 @@ package com.gpxpoienricher.ui.maps
 
 import android.app.Application
 import android.net.Uri
-import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import com.chaquo.python.Python
 import com.gpxpoienricher.LogCallback
+import com.gpxpoienricher.io.documentName
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -43,7 +43,11 @@ class MapsToGpxViewModel(app: Application) : AndroidViewModel(app) {
 
     private var job: Job? = null
 
-    fun setOutputFile(uri: Uri) { _outputUri.value = uri; _outputName.value = fileName(uri) }
+    fun setOutputFile(uri: Uri) {
+        val name = fileName(uri)
+        _outputUri.value = uri.takeIf { name != null }
+        _outputName.value = name
+    }
 
     fun previewOutputBasename(url: String, onReady: (String) -> Unit) {
         val trimmed = url.trim()
@@ -121,8 +125,5 @@ class MapsToGpxViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun fileName(uri: Uri): String? =
-        getApplication<Application>().contentResolver.query(uri, null, null, null, null)?.use {
-            val idx = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (it.moveToFirst() && idx >= 0) it.getString(idx) else null
-        }
+        documentName(getApplication<Application>().contentResolver, uri)
 }

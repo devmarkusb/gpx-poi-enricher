@@ -56,6 +56,12 @@ class EasyFragment : Fragment() {
 
         profileFromPrefsApplied = false
         val ctx = requireContext()
+        binding.editPointInput.setText(GuiStatePreferences.readEasyPointInput(ctx))
+        binding.searchModeGroup.check(
+            if (GuiStatePreferences.readEasyPointMode(ctx)) binding.radioPointSearch.id else binding.radioTrackSearch.id,
+        )
+        updateSearchMode()
+        binding.searchModeGroup.setOnCheckedChangeListener { _, _ -> updateSearchMode() }
         binding.editUrl.setText(GuiStatePreferences.readEasyPrimaryUrl(ctx))
         binding.editExtraUrls.setText(GuiStatePreferences.readEasyExtraUrls(ctx))
         binding.editMilestoneParts.setText(GuiStatePreferences.readEasyMilestoneParts(ctx).toString())
@@ -81,6 +87,8 @@ class EasyFragment : Fragment() {
         }
 
         vm.isRunning.observe(viewLifecycleOwner) { running ->
+            binding.radioTrackSearch.isEnabled = !running && vm.canResume.value != true
+            binding.radioPointSearch.isEnabled = !running && vm.canResume.value != true
             binding.btnGenerate.isEnabled = !running
             binding.btnCancel.isEnabled = running
             binding.progressBar.visibility = if (running) View.VISIBLE else View.GONE
@@ -110,6 +118,7 @@ class EasyFragment : Fragment() {
             }
             binding.cardResults.visibility = View.VISIBLE
             val reusedNote = if (result.trackReused) "  (reused)" else ""
+            binding.textTrackFile.visibility = if (result.trackPath.isBlank()) View.GONE else View.VISIBLE
             binding.textTrackFile.text = result.trackPath + reusedNote
             binding.textPoiFile.text = "${result.poiPath}  (${result.poiCount} POI(s))"
 
@@ -151,6 +160,8 @@ class EasyFragment : Fragment() {
         }
 
         vm.canResume.observe(viewLifecycleOwner) { resume ->
+            binding.radioTrackSearch.isEnabled = !resume && vm.isRunning.value != true
+            binding.radioPointSearch.isEnabled = !resume && vm.isRunning.value != true
             binding.btnGenerate.text = getString(
                 if (resume) R.string.btn_resume_enrichment else R.string.btn_generate,
             )
@@ -161,7 +172,8 @@ class EasyFragment : Fragment() {
         }
 
         binding.btnGenerate.setOnClickListener {
-            val url = binding.editUrl.text?.toString() ?: ""
+            val pointMode = binding.radioPointSearch.isChecked
+            val url = (if (pointMode) binding.editPointInput else binding.editUrl).text?.toString() ?: ""
             val extras = binding.editExtraUrls.text?.toString() ?: ""
             val parts = binding.editMilestoneParts.text?.toString()?.trim()?.toIntOrNull()?.coerceIn(0, 9999) ?: 0
             val profileIx = binding.spinnerProfile.selectedItemPosition
@@ -171,7 +183,7 @@ class EasyFragment : Fragment() {
                         requireContext(),
                         Manifest.permission.WRITE_EXTERNAL_STORAGE,
                     ) == PackageManager.PERMISSION_GRANTED
-                vm.generate(url, extras, profileIx, parts, legacyStorageGranted = legacyOk)
+                vm.generate(url, extras, profileIx, parts, legacyStorageGranted = legacyOk, pointMode = pointMode)
             }
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
                 ContextCompat.checkSelfPermission(
@@ -197,6 +209,15 @@ class EasyFragment : Fragment() {
         binding.btnCancel.setOnClickListener { vm.cancel() }
     }
 
+    private fun updateSearchMode() {
+        val point = binding.radioPointSearch.isChecked
+        binding.routeInputCard.visibility = if (point) View.GONE else View.VISIBLE
+        binding.pointInputCard.visibility = if (point) View.VISIBLE else View.GONE
+        binding.layoutMilestoneParts.visibility = if (point) View.GONE else View.VISIBLE
+        binding.backgroundNoticeCard.visibility = if (point) View.GONE else View.VISIBLE
+        binding.pointRadiusHint.visibility = if (point) View.VISIBLE else View.GONE
+    }
+
     override fun onResume() {
         super.onResume()
         vm.reloadProfiles()
@@ -215,6 +236,8 @@ class EasyFragment : Fragment() {
                 b.editExtraUrls.text?.toString() ?: "",
                 pid,
                 milestoneParts,
+                b.radioPointSearch.isChecked,
+                b.editPointInput.text?.toString() ?: "",
             )
         }
         super.onStop()

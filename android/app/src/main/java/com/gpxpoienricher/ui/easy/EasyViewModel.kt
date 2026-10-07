@@ -90,6 +90,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
         profileIndex: Int,
         milestoneParts: Int = 0,
         legacyStorageGranted: Boolean = false,
+        pointMode: Boolean = false,
     ) {
         if (interrupted != null) {
             resume(legacyStorageGranted)
@@ -97,7 +98,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         val url = primaryUrl.trim()
-        if (url.isBlank()) { _snackbar.value = "Enter a Google Maps URL"; return }
+        if (url.isBlank()) { _snackbar.value = if (pointMode) "Enter a point or Maps place link" else "Enter a Google Maps URL"; return }
         val profile = _profiles.value?.getOrNull(profileIndex)
             ?: run { _snackbar.value = "No profile selected"; return }
 
@@ -120,7 +121,11 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                     outputDir.mkdirs()
 
                     val parts = milestoneParts.coerceIn(0, 9999)
-                    val resultJson = Python.getInstance().getModule("gpx_bridge").callAttr(
+                    val bridge = Python.getInstance().getModule("gpx_bridge")
+                    val resultJson = if (pointMode) bridge.callAttr(
+                        "easy_generate_point", url, profile.id,
+                        GpxApp.extractProfiles().absolutePath, outputDir.absolutePath, LogCallback(::log),
+                    ).toString() else bridge.callAttr(
                         "easy_generate",
                         url,
                         extraUrlsMultiline,
@@ -388,7 +393,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
     ): Result {
         val reusedCanonical = reusedPaths.mapNotNull { runCatching { File(it).canonicalPath }.getOrNull() }.toSet()
         val paths = LinkedHashSet<String>()
-        paths.add(res.trackPath)
+        if (res.trackPath.isNotBlank()) paths.add(res.trackPath)
         paths.add(res.poiPath)
         paths.addAll(res.alternateFullPaths)
         res.detourResults.forEach {
@@ -411,6 +416,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         fun mapPath(p: String): String {
+            if (p.isBlank()) return p
             val f = File(p)
             return if (f.isFile) displayByCanonical[f.canonicalPath] ?: p else p
         }

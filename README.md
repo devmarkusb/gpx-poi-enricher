@@ -55,9 +55,9 @@ All three commands install together and can be run alone or chained. Split and P
 - **`gpx-split-waypoints`** — evenly spaced split `<wpt>` markers for waypoint-limited apps.
 - **`gpx-poi-enricher`** — OSM POIs along a track or around a point; **10** curated YAML profiles
   plus a **POI catalog** (~95 common types); **`--quick`** for sparse smoke tests.
-- **GUI** (`gpx-poi-enricher-gui`) — **Easy**: URL → GPX(s) → POIs; **Expert**: track or point search;
+- **GUI** (`gpx-poi-enricher-gui`) — **Easy**: route or point → GPX + POIs; **Expert**: track or point search;
   **Profiles**: add POI types from the built-in catalog.
-- **Android app** — POI Enricher accepts a track GPX or a point/Maps link.
+- **Android app** — Easy and POI Enricher support point/Maps link searches.
 - Country-aware **`terms`** (`DE`, `FR`, `ES`, `EN`); Overpass mirrors with retries; per-profile
   defaults overridable on the CLI; custom YAML via **`GPX_POI_PROFILES_DIR`**.
 
@@ -115,9 +115,9 @@ From a clone: `uv run gpx-poi-enricher-gui`.
 `uv run python scripts/build_macos_app.py` → `dist/GPX POI Enricher.app`. Drag to Applications or
 Dock. Rebuild after upgrading the package in `.venv`.
 
-**Easy** — one primary Maps URL (required), optional extra URLs per line → routed GPX(s), optional
-alternate/detour GPX files, then POI enrichment. Progress log + file list; cancel after current
-Overpass batch.
+**Easy** — choose Route for Maps directions → GPX(s) + POIs, or Point for coordinates/a Maps
+place link → POI-only GPX. Point radius comes from the profile. Route mode also supports
+alternates, detours, and milestones. Progress log + file list; cancel after the current batch.
 
 **Expert** — POI Enricher, Split Waypoints, Maps → GPX, and **Profiles** tabs (same CLIs; Maps tab
 supports multiple URLs like Easy). **Profiles → Add from catalog…** adds common OSM POI types

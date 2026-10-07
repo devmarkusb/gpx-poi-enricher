@@ -216,6 +216,27 @@ def enrich_point(
             sys.stderr = old
 
 
+def easy_generate_point(location, profile_id, profiles_dir, output_dir, log_callback):
+    import hashlib
+
+    digest = hashlib.sha256(location.encode()).hexdigest()[:8]
+    output = pathlib.Path(output_dir) / f"point-{digest}-{profile_id}.gpx"
+    result = json.loads(
+        enrich_point(location, str(output), profile_id, profiles_dir, None, log_callback)
+    )
+    if _cancel_event.is_set():
+        return json.dumps({"cancelled": True})
+    return json.dumps(
+        {
+            "start": "",
+            "finish": "",
+            "track_path": "",
+            "poi_path": str(output),
+            "poi_count": result["poi_count"],
+        }
+    )
+
+
 def cancel():
     _cancel_event.set()
 

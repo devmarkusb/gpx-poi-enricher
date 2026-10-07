@@ -2,7 +2,6 @@ package com.gpxpoienricher.ui.enricher
 
 import android.app.Application
 import android.net.Uri
-import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -10,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.chaquo.python.Python
 import com.gpxpoienricher.GpxApp
 import com.gpxpoienricher.LogCallback
+import com.gpxpoienricher.io.documentName
 import com.gpxpoienricher.data.ProfileInfo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -75,15 +75,17 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setInputFile(uri: Uri) {
-        _inputUri.value = uri
-        _inputName.value = fileName(uri)
+        val name = fileName(uri)
+        _inputUri.value = uri.takeIf { name != null }
+        _inputName.value = name
         resumeState = null
         _canResume.value = false
     }
 
     fun setOutputFile(uri: Uri) {
-        _outputUri.value = uri
-        _outputName.value = fileName(uri)
+        val name = fileName(uri)
+        _outputUri.value = uri.takeIf { name != null }
+        _outputName.value = name
         resumeState = null
         _canResume.value = false
     }
@@ -308,11 +310,7 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
     fun snapshotOutputUri(): Uri? = _outputUri.value
 
     private fun fileName(uri: Uri): String? =
-        getApplication<Application>().contentResolver.query(uri, null, null, null, null)?.use {
-            val idx = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (it.moveToFirst() && idx >= 0) it.getString(idx) else null
-        }
-
+        documentName(getApplication<Application>().contentResolver, uri)
     private fun parseProfiles(json: String): List<ProfileInfo> {
         val arr = org.json.JSONArray(json)
         return (0 until arr.length())

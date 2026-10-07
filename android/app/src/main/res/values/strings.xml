@@ -86,4 +86,6 @@
     <string name="billing_ack_failed">Purchase could not be confirmed. Try Restore purchases or contact support.</string>
     <string name="billing_store_not_ready">Store not ready yet — try again in a moment.</string>
     <string name="billing_could_not_open_payment">Could not open the payment sheet.</string>
+    <string name="mode_route_search">Route</string>
+    <string name="point_radius_hint">Radius from profile</string>
 </resources>
