@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.10"
 
 [[package]]
@@ -362,7 +362,7 @@ wheels = [
 
 [[package]]
 name = "gpx-poi-enricher"
-version = "1.15.1"
+version = "1.16.0"
 source = { editable = "." }
 dependencies = [
     { name = "gpxpy" },
