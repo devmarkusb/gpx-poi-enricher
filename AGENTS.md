@@ -55,7 +55,7 @@ when bumping versions.
 
 ## 6. Coding conventions
 
-- **Python:** Target **3.10+**; Ruff `line-length = 100`, rules `E,F,W,I,UP` with `E501` ignored.
+- **Python:** Target **3.13+**; Ruff `line-length = 100`, rules `E,F,W,I,UP` with `E501` ignored.
   Match existing module layout and CLI patterns in `cli.py`, `maps_to_gpx_cli.py`, etc.
 - **Kotlin/Android:** Follow existing package `com.gpxpoienricher`, Material patterns, and
   Chaquopy-related constraints in `android/app/build.gradle.kts`.

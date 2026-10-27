@@ -3,7 +3,7 @@
 **CLI tools and apps for finding OpenStreetMap POIs along a track or around a Google Maps place.**
 
 [![CI][badge-ci]][ci]
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![PyPI](https://badge.fury.io/py/gpx-poi-enricher.svg)](https://pypi.org/project/gpx-poi-enricher/)
 
@@ -65,7 +65,7 @@ All three commands install together and can be run alone or chained. Split and P
 
 ## Installation
 
-**Python 3.10+**. Use an isolated install — system Python is often
+**Python 3.13+**. Use an isolated install — system Python is often
 [externally managed](https://peps.python.org/pep-0668/) on Linux. Recommended: venv + pip:
 
 ```bash
