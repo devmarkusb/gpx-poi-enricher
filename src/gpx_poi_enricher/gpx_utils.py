@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import xml.etree.ElementTree as ET
+from decimal import Decimal
 
 GPX_NS = "http://www.topografix.com/GPX/1/1"
 _NS = {"gpx": GPX_NS}
@@ -201,8 +202,8 @@ def add_waypoints_to_gpx(
     for item in items:
         wpt = ET.Element(
             f"{{{GPX_NS}}}wpt",
-            lat=f"{item['lat']:.6f}",
-            lon=f"{item['lon']:.6f}",
+            lat=format(Decimal(str(item["lat"])), "f"),
+            lon=format(Decimal(str(item["lon"])), "f"),
         )
         ET.SubElement(wpt, f"{{{GPX_NS}}}name").text = item["name"]
         ET.SubElement(

@@ -68,6 +68,7 @@ android {
         targetSdk = 36
         versionCode = playVersionCode
         versionName = playVersionName
+        testInstrumentationRunner = "com.gpxpoienricher.audit.AuditTestRunner"
 
         manifestPlaceholders["admobAppId"] = admobAppId
         resValue("string", "admob_banner_ad_unit_id", admobBannerUnitId)
@@ -93,6 +94,11 @@ android {
     }
 
     buildTypes {
+        create("audit") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".audit"
+            matchingFallbacks += "debug"
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -104,6 +110,7 @@ android {
             }
         }
     }
+    testBuildType = "audit"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -178,4 +185,7 @@ dependencies {
     implementation(libs.play.billing.ktx)
     implementation(libs.play.services.ads)
     implementation(libs.user.messaging.platform)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.junit)
 }

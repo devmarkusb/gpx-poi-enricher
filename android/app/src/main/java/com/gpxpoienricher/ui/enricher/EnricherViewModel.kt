@@ -218,7 +218,9 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
     ) {
         val ctx = getApplication<Application>()
         val workDir = GpxApp.gpxWorkDir().apply { mkdirs() }
-        val tag = workTag(inputUri, profileId)
+        // Distinct operations must not overwrite another model's resumable work,
+        // even when their documents have the same display name.
+        val tag = "${workTag(inputUri, profileId)}-$operationId"
         val inWork =
             if (inputWorkPath != null) File(inputWorkPath) else File(workDir, "enrich-in-$tag.gpx")
         val outWork =
@@ -283,7 +285,7 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
     ) {
         val ctx = getApplication<Application>()
         val workDir = GpxApp.gpxWorkDir().apply { mkdirs() }
-        val outWork = File(workDir, "point-out-${workTag(location, profileId)}.gpx")
+        val outWork = File(workDir, "point-out-${workTag(location, profileId)}-$operationId.gpx")
         val resultJson = Python.getInstance().getModule("gpx_bridge").callAttr(
             "enrich_point",
             location,

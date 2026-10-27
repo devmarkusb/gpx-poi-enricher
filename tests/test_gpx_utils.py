@@ -408,3 +408,15 @@ def test_invalid_gpx_coordinates_are_rejected(tmp_path, lat, lon):
     )
     with pytest.raises(ValueError, match="coordinates"):
         parse_gpx_trackpoints(str(path))
+
+
+@pytest.mark.parametrize("lat,lon", [(1e-7, -1e-8), (12.3456789012345, -98.7654321098765)])
+def test_waypoint_coordinates_round_trip_without_precision_loss(lat, lon):
+    root = ET.Element(f"{{{GPX_NS}}}gpx")
+    item = {"lat": lat, "lon": lon, "name": "Precise POI", "distance_km": 0}
+    add_waypoints_to_gpx(root, [item], symbol="Pin", type_label="POI")
+    waypoint = ET.fromstring(ET.tostring(root))[0]
+    assert float(waypoint.attrib["lat"]) == lat
+    assert float(waypoint.attrib["lon"]) == lon
+    assert "e" not in waypoint.attrib["lat"].lower()
+    assert "e" not in waypoint.attrib["lon"].lower()

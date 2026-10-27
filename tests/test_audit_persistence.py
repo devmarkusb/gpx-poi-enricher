@@ -121,3 +121,34 @@ def test_resume_rejects_changed_original_waypoints(monkeypatch, offline_enrichme
     ET.ElementTree(root).write(copied)
     with pytest.raises((ValueError, enricher.EnrichInterrupted), match="changed|match"):
         enricher.enrich_gpx_file(copied, output, resume=True, **kwargs)
+
+
+def test_resume_preserves_a_poi_at_the_radius_boundary(monkeypatch, offline_enrichment, tmp_path):
+    import math
+
+    _source, output, kwargs, _response = offline_enrichment
+    source = tmp_path / "boundary.gpx"
+    source.write_text(
+        f'<gpx xmlns="{GPX_NS}" version="1.1" creator="test"><trk><trkseg>'
+        '<trkpt lat="0" lon="0"/><trkpt lat="0" lon="0.1"/>'
+        '<trkpt lat="0" lon="0.2"/></trkseg></trk></gpx>'
+    )
+    radius = 1.00005
+    latitude = radius / (6371.0088 * math.pi / 180) - 1e-9
+    response = {
+        "elements": [
+            {
+                "type": "node",
+                "id": 77,
+                "lat": latitude,
+                "lon": 0.0,
+                "tags": {"name": "Boundary POI"},
+            }
+        ]
+    }
+    kwargs = {**kwargs, "max_km": radius}
+    _interrupt(monkeypatch, (str(source), output, kwargs, response))
+    monkeypatch.setattr(enricher, "query_overpass", lambda *_a, **_k: {"elements": []})
+    items = enricher.enrich_gpx_file(source, output, resume=True, **kwargs)
+    assert [item["name"] for item in items] == ["Boundary POI"]
+    assert items[0]["lat"] == latitude
