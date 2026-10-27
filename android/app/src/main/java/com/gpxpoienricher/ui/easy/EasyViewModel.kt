@@ -83,6 +83,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * @param legacyStorageGranted On API 26–28, true when [android.Manifest.permission.WRITE_EXTERNAL_STORAGE]
      * is granted so outputs can be copied into public Downloads.
+     * @param pointRadius Radius in km around the chosen point; blank keeps the profile radius.
      */
     fun generate(
         primaryUrl: String,
@@ -91,6 +92,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
         milestoneParts: Int = 0,
         legacyStorageGranted: Boolean = false,
         pointMode: Boolean = false,
+        pointRadius: String = "",
     ) {
         if (interrupted != null) {
             resume(legacyStorageGranted)
@@ -99,6 +101,16 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
 
         val url = primaryUrl.trim()
         if (url.isBlank()) { _snackbar.value = if (pointMode) "Enter a point or Maps place link" else "Enter a Google Maps URL"; return }
+        val maxKm = if (!pointMode || pointRadius.isBlank()) {
+            null
+        } else {
+            val parsed = pointRadius.trim().toDoubleOrNull()
+            if (parsed == null || parsed <= 0.0 || parsed > 999.0) {
+                _snackbar.value = "Radius must be a number like 5 or 2.5 (blank = profile radius)"
+                return
+            }
+            parsed
+        }
         val profile = _profiles.value?.getOrNull(profileIndex)
             ?: run { _snackbar.value = "No profile selected"; return }
 
@@ -125,6 +137,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                     val resultJson = if (pointMode) bridge.callAttr(
                         "easy_generate_point", url, profile.id,
                         GpxApp.extractProfiles().absolutePath, outputDir.absolutePath, LogCallback(::log),
+                        maxKm,
                     ).toString() else bridge.callAttr(
                         "easy_generate",
                         url,

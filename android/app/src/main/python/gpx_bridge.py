@@ -15,6 +15,7 @@ from gpx_poi_enricher.enricher import (
     EnrichInterrupted,
     enrich_gpx_file,
     enrich_point_file,
+    enrich_point_file_named,
     enrich_tracks_to_poi_gpx,
 )
 from gpx_poi_enricher.maps_to_gpx_cli import (
@@ -216,14 +217,31 @@ def enrich_point(
             sys.stderr = old
 
 
-def easy_generate_point(location, profile_id, profiles_dir, output_dir, log_callback):
-    import hashlib
+def easy_generate_point(location, profile_id, profiles_dir, output_dir, log_callback, max_km=None):
+    """Enrich around *location* and write ``{name}-{profile_id}.gpx`` under *output_dir*.
 
-    digest = hashlib.sha256(location.encode()).hexdigest()[:8]
-    output = pathlib.Path(output_dir) / f"point-{digest}-{profile_id}.gpx"
-    result = json.loads(
-        enrich_point(location, str(output), profile_id, profiles_dir, None, log_callback)
-    )
+    ``{name}`` comes from the nearest named POI, else the nearest Nominatim place,
+    else the historic ``point-{hash}`` scheme. *max_km* overrides the profile radius.
+    """
+    _cancel_event.clear()
+    kwargs = {"cancel_event": _cancel_event}
+    if max_km is not None:
+        kwargs["max_km"] = float(max_km)
+
+    with _stderr_lock:
+        old = sys.stderr
+        sys.stderr = _LogStream(log_callback)
+        try:
+            output, pois = enrich_point_file_named(
+                location,
+                output_dir,
+                profile_id,
+                profiles_dir=pathlib.Path(profiles_dir),
+                **kwargs,
+            )
+        finally:
+            sys.stderr.flush()
+            sys.stderr = old
     if _cancel_event.is_set():
         return json.dumps({"cancelled": True})
     return json.dumps(
@@ -231,8 +249,8 @@ def easy_generate_point(location, profile_id, profiles_dir, output_dir, log_call
             "start": "",
             "finish": "",
             "track_path": "",
-            "poi_path": str(output),
-            "poi_count": result["poi_count"],
+            "poi_path": output,
+            "poi_count": len(pois),
         }
     )
 

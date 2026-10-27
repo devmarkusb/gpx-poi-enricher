@@ -9,7 +9,6 @@ or:
 
 from __future__ import annotations
 
-import hashlib
 import pathlib
 import sys
 import threading
@@ -51,6 +50,7 @@ from .enricher import (
     EnrichInterrupted,
     enrich_gpx_file,
     enrich_point_file,
+    enrich_point_file_named,
     enrich_tracks_to_poi_gpx,
 )
 from .gui_profiles import ProfilesManagerTab
@@ -494,6 +494,7 @@ class _EasyWorker(QThread):
         *,
         resume_from: dict[str, Any] | None = None,
         point_location: str | None = None,
+        point_radius: float = 0.0,
     ) -> None:
         super().__init__()
         self._urls = urls
@@ -504,6 +505,7 @@ class _EasyWorker(QThread):
         self._split_segments = split_segments
         self._resume_from = resume_from
         self._point_location = point_location
+        self._point_radius = point_radius
 
     def _enrich_kwargs(self) -> dict[str, Any]:
         enrich_kwargs: dict[str, Any] = {"progress_interval": 5.0}
@@ -562,18 +564,18 @@ class _EasyWorker(QThread):
         enrich_kwargs = self._enrich_kwargs()
         try:
             if self._point_location is not None:
-                digest = hashlib.sha256(self._point_location.encode()).hexdigest()[:8]
-                poi_path = pathlib.Path(self._output_dir) / f"point-{digest}-{self._profile_id}.gpx"
-                pois = enrich_point_file(
+                # Radius 0 = "use the profile default"; --quick keeps its 1 km smoke radius.
+                max_km = self._point_radius or (1.0 if self._quick else None)
+                poi_path, pois = enrich_point_file_named(
                     self._point_location,
-                    str(poi_path),
+                    self._output_dir,
                     self._profile_id,
                     cancel_event=self._cancel_event,
-                    **({"max_km": 1.0} if self._quick else {}),
+                    **({"max_km": max_km} if max_km else {}),
                 )
                 capture.flush()
                 if not self._cancel_event.is_set():
-                    self.pois_done.emit([(str(poi_path), len(pois))])
+                    self.pois_done.emit([(poi_path, len(pois))])
                 self.finished.emit()
                 return
             if self._resume_from:
@@ -796,9 +798,19 @@ class _EasyTab(QWidget):
         cfg_l = QFormLayout(cfg_box)
         self._profile_combo = QComboBox()
         cfg_l.addRow("Profile:", self._profile_combo)
-        self._radius_hint = QLabel("Radius from profile")
-        self._radius_hint.hide()
-        cfg_l.addRow(self._radius_hint)
+        self._radius_label = QLabel("Radius:")
+        self._point_radius = QDoubleSpinBox()
+        self._point_radius.setRange(0, 999)
+        self._point_radius.setDecimals(1)
+        self._point_radius.setSuffix(" km")
+        self._point_radius.setSpecialValueText("profile default")
+        self._point_radius.setToolTip(
+            "Search radius around the chosen point. «profile default» uses the radius "
+            "configured in the selected profile."
+        )
+        self._radius_label.hide()
+        self._point_radius.hide()
+        cfg_l.addRow(self._radius_label, self._point_radius)
         self._milestone_parts = QSpinBox()
         self._milestone_parts.setRange(0, 9999)
         self._milestone_parts.setSpecialValueText("Off")
@@ -869,7 +881,8 @@ class _EasyTab(QWidget):
         self._point_edit.setVisible(point)
         self._milestone_parts.setVisible(not point)
         self._milestone_label.setVisible(not point)
-        self._radius_hint.setVisible(point)
+        self._radius_label.setVisible(point)
+        self._point_radius.setVisible(point)
 
     def _load_profiles(self) -> None:
         self._profile_combo.clear()
@@ -944,6 +957,7 @@ class _EasyTab(QWidget):
             split_segments=self._milestone_parts.value(),
             resume_from=self._resume_ctx if resume else None,
             point_location=primary if point else None,
+            point_radius=self._point_radius.value(),
         )
         self._worker.log_message.connect(lambda t: _append_log(self._log, t))
         self._worker.milestone_paths_ready.connect(self._on_milestone_paths_ready)
@@ -1031,6 +1045,7 @@ class _EasyTab(QWidget):
         try:
             self._source_combo.setCurrentIndex(1 if s.value("point_mode", False, type=bool) else 0)
             self._point_edit.setText(s.value("point_input", "", type=str))
+            self._point_radius.setValue(s.value("point_radius", 0.0, type=float))
             self._url_edit.setText(s.value("primary_url", "", type=str))
             self._extra_urls_edit.setPlainText(s.value("extra_urls", "", type=str))
             _set_combo_profile_id(self._profile_combo, s.value("profile_id", "", type=str))
@@ -1048,6 +1063,7 @@ class _EasyTab(QWidget):
         try:
             s.setValue("point_mode", self._source_combo.currentData() == "point")
             s.setValue("point_input", self._point_edit.text())
+            s.setValue("point_radius", self._point_radius.value())
             s.setValue("primary_url", self._url_edit.text())
             s.setValue("extra_urls", self._extra_urls_edit.toPlainText())
             pid = self._profile_combo.currentData()

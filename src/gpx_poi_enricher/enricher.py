@@ -26,6 +26,7 @@ from .gpx_utils import (
     sample_track_by_distance,
 )
 from .location import resolve_point_input
+from .naming import point_output_stem
 from .overpass import build_overpass_queries, extract_candidates, query_overpass
 from .profiles import SearchProfile, load_profile
 from .progress import ProgressHeartbeat
@@ -333,6 +334,23 @@ def enrich_point(
     return enrich_track([(lat, lon)], profile, _target_label="point", **point_kwargs)
 
 
+def _write_point_gpx(
+    items: list[dict[str, Any]],
+    profile: SearchProfile,
+    output_path: str | pathlib.Path,
+) -> pathlib.Path:
+    """Write a waypoints-only GPX for *items* to *output_path* (creates parent dirs)."""
+    root = ET.Element(
+        f"{{{GPX_NS}}}gpx",
+        {"version": "1.1", "creator": "gpx-poi-enricher"},
+    )
+    add_waypoints_to_gpx(root, items, symbol=profile.symbol, type_label=profile.description)
+    outp = pathlib.Path(output_path)
+    outp.parent.mkdir(parents=True, exist_ok=True)
+    ET.ElementTree(root).write(str(outp), encoding="utf-8", xml_declaration=True)
+    return outp
+
+
 def enrich_point_file(
     location: str,
     output_path: str | pathlib.Path,
@@ -344,18 +362,48 @@ def enrich_point_file(
     profile = load_profile(profile_id, profiles_dir)
     point = resolve_point_input(location, session=kwargs.get("http_session"))
     items = enrich_point(point, profile, **kwargs)
-
-    root = ET.Element(
-        f"{{{GPX_NS}}}gpx",
-        {"version": "1.1", "creator": "gpx-poi-enricher"},
-    )
-    add_waypoints_to_gpx(root, items, symbol=profile.symbol, type_label=profile.description)
-    outp = pathlib.Path(output_path)
-    outp.parent.mkdir(parents=True, exist_ok=True)
-    ET.ElementTree(root).write(str(outp), encoding="utf-8", xml_declaration=True)
+    outp = _write_point_gpx(items, profile, output_path)
     print(f"\nAdding {len(items)} waypoints.", file=sys.stderr)
     print(f"Wrote: {outp}", file=sys.stderr)
     return items
+
+
+def enrich_point_file_named(
+    location: str,
+    output_dir: str | pathlib.Path,
+    profile_id: str,
+    profiles_dir: pathlib.Path | None = None,
+    **kwargs: Any,
+) -> tuple[str, list[dict[str, Any]]]:
+    """Enrich around a point and write ``{name}-{profile_id}.gpx`` under *output_dir*.
+
+    ``{name}`` is the nearest reasonable named thing: the closest POI with a real
+    OSM name, otherwise the nearest named place from one Nominatim reverse lookup,
+    otherwise ``point-{sha256[:8]}`` (the historic naming scheme, used whenever no
+    usable name is found).
+
+    Returns ``(output_path, items)``.
+    """
+    profile = load_profile(profile_id, profiles_dir)
+    session = kwargs.get("http_session") or requests.Session()
+    own_session = kwargs.get("http_session") is None
+    try:
+        point = resolve_point_input(location, session=session)
+        items = enrich_point(point, profile, **kwargs)
+        stem, source = point_output_stem(location, items, point=point, session=session)
+        out_path = pathlib.Path(output_dir) / f"{stem}-{profile_id}.gpx"
+        outp = _write_point_gpx(items, profile, out_path)
+    finally:
+        if own_session:
+            session.close()
+
+    print(f"\nAdding {len(items)} waypoints.", file=sys.stderr)
+    if source == "poi":
+        print(f"Named after the nearest POI: {stem}", file=sys.stderr)
+    elif source == "place":
+        print(f"Named after the nearest place: {stem}", file=sys.stderr)
+    print(f"Wrote: {outp}", file=sys.stderr)
+    return str(outp), items
 
 
 def enrich_gpx_file(

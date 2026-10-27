@@ -280,11 +280,12 @@ def element_latlon(el: dict[str, Any]) -> tuple[float | None, float | None]:
     return None, None
 
 
-_NAME_TAG_PRIORITY = ("name", "official_name", "alt_name", "short_name", "brand", "operator")
+# OSM tags whose values can serve as a display/filename name for a POI.
+NAME_TAG_PRIORITY = ("name", "official_name", "alt_name", "short_name", "brand", "operator")
 
 
 def _choose_name(tags: dict[str, str], profile: SearchProfile) -> str:
-    for key in _NAME_TAG_PRIORITY:
+    for key in NAME_TAG_PRIORITY:
         val = tags.get(key, "").strip()
         if val:
             return val
@@ -293,7 +294,7 @@ def _choose_name(tags: dict[str, str], profile: SearchProfile) -> str:
 
 def _tags_have_distinct_display_name(tags: dict[str, str]) -> bool:
     """True if any tag used for GPX naming is non-empty (avoids profile-description fallback)."""
-    for key in _NAME_TAG_PRIORITY:
+    for key in NAME_TAG_PRIORITY:
         if tags.get(key, "").strip():
             return True
     return False

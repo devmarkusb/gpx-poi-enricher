@@ -18,6 +18,7 @@ from gpx_poi_enricher.geocoding import (
     NOMINATIM_URL,
     detect_country_segments,
     reverse_country_code,
+    reverse_place_name,
 )
 
 # ---------------------------------------------------------------------------
@@ -288,3 +289,63 @@ def test_detect_country_segments_updates_progress():
 
     assert "nominatim_samples_total" in progress
     assert progress["nominatim_samples_total"] == len(pts)
+
+
+# ---------------------------------------------------------------------------
+# reverse_place_name
+# ---------------------------------------------------------------------------
+
+
+@resp_lib.activate
+def test_reverse_place_name_prefers_matched_object_name():
+    """The matched object's own name (e.g. a street or POI) wins over the address."""
+    resp_lib.add(
+        resp_lib.GET,
+        NOMINATIM_URL,
+        json={"name": "Hardenbergplatz", "address": {"city": "Munich"}},
+        status=200,
+    )
+    assert reverse_place_name(48.1351, 11.5820, _session()) == "Hardenbergplatz"
+
+
+@resp_lib.activate
+def test_reverse_place_name_uses_most_local_address_part():
+    """Address parts are preferred most-local first (suburb over city/country)."""
+    resp_lib.add(
+        resp_lib.GET,
+        NOMINATIM_URL,
+        json={
+            "address": {
+                "country": "Germany",
+                "city": "Berlin",
+                "suburb": "Tiergarten",
+                "road": "Hardenbergplatz",
+            }
+        },
+        status=200,
+    )
+    assert reverse_place_name(52.5, 13.3, _session()) == "Tiergarten"
+
+
+@resp_lib.activate
+def test_reverse_place_name_falls_back_to_display_name():
+    resp_lib.add(
+        resp_lib.GET,
+        NOMINATIM_URL,
+        json={"display_name": "Hardenbergplatz 1, 10623 Berlin, Germany"},
+        status=200,
+    )
+    assert reverse_place_name(52.5, 13.3, _session()) == "Hardenbergplatz 1, 10623 Berlin, Germany"
+
+
+@resp_lib.activate
+def test_reverse_place_name_empty_response_returns_empty_string():
+    resp_lib.add(resp_lib.GET, NOMINATIM_URL, json={"place_id": 0}, status=200)
+    assert reverse_place_name(0.0, 0.0, _session()) == ""
+
+
+@resp_lib.activate
+def test_reverse_place_name_http_error_raises():
+    resp_lib.add(resp_lib.GET, NOMINATIM_URL, status=503)
+    with pytest.raises(requests.HTTPError):
+        reverse_place_name(48.0, 11.0, _session())

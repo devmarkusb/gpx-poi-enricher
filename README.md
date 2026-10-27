@@ -116,8 +116,10 @@ From a clone: `uv run gpx-poi-enricher-gui`.
 Dock. Rebuild after upgrading the package in `.venv`.
 
 **Easy** — choose Route for Maps directions → GPX(s) + POIs, or Point for coordinates/a Maps
-place link → POI-only GPX. Point radius comes from the profile. Route mode also supports
-alternates, detours, and milestones. Progress log + file list; cancel after the current batch.
+place link → POI-only GPX. Point mode has its own radius field (blank/0 = the profile radius) and
+names its GPX after the nearest named POI, else the nearest place from one Nominatim reverse
+lookup, else `point-{hash}` as before. Route mode also supports alternates, detours, and
+milestones. Progress log + file list; cancel after the current batch.
 
 **Expert** — POI Enricher, Split Waypoints, Maps → GPX, and **Profiles** tabs (same CLIs; Maps tab
 supports multiple URLs like Easy). **Profiles → Add from catalog…** adds common OSM POI types

@@ -15,6 +15,7 @@ object GuiStatePreferences {
 
     private const val K_EASY_POINT_MODE = "easy_point_mode"
     private const val K_EASY_POINT_INPUT = "easy_point_input"
+    private const val K_EASY_POINT_RADIUS = "easy_point_radius"
     private const val K_EASY_PRIMARY = "easy_primary_url"
     private const val K_EASY_EXTRA = "easy_extra_urls"
     private const val K_EASY_PROFILE = "easy_profile_id"
@@ -62,6 +63,9 @@ object GuiStatePreferences {
 
     fun readEasyPointInput(ctx: Context): String = sp(ctx).getString(K_EASY_POINT_INPUT, "") ?: ""
 
+    /** Blank = use the radius configured in the selected profile. */
+    fun readEasyPointRadius(ctx: Context): String = sp(ctx).getString(K_EASY_POINT_RADIUS, "") ?: ""
+
     fun readEasyPrimaryUrl(ctx: Context): String = sp(ctx).getString(K_EASY_PRIMARY, "") ?: ""
 
     fun readEasyExtraUrls(ctx: Context): String = sp(ctx).getString(K_EASY_EXTRA, "") ?: ""
@@ -80,10 +84,12 @@ object GuiStatePreferences {
         milestoneParts: Int = 0,
         pointMode: Boolean = false,
         pointInput: String = "",
+        pointRadius: String = "",
     ) {
         val e = sp(ctx).edit()
         e.putBoolean(K_EASY_POINT_MODE, pointMode)
         e.putString(K_EASY_POINT_INPUT, pointInput)
+        e.putString(K_EASY_POINT_RADIUS, pointRadius)
         e.putString(K_EASY_PRIMARY, primaryUrl)
         e.putString(K_EASY_EXTRA, extraUrls)
         if (profileId.isNullOrBlank()) e.remove(K_EASY_PROFILE) else e.putString(K_EASY_PROFILE, profileId)

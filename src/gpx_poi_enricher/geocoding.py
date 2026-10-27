@@ -17,6 +17,26 @@ if TYPE_CHECKING:
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
 USER_AGENT = "gpx-poi-enricher/0.1 (https://github.com/devmarkusb/gpx-poi-enricher)"
 
+# Address keys most likely to name the place a coordinate belongs to, most local first.
+_PLACE_NAME_KEYS = (
+    "neighbourhood",
+    "quarter",
+    "suburb",
+    "borough",
+    "hamlet",
+    "village",
+    "town",
+    "city_district",
+    "city",
+    "municipality",
+    "locality",
+    "park",
+    "road",
+    "county",
+    "state",
+    "country",
+)
+
 
 def reverse_country_code(
     lat: float,
@@ -40,6 +60,41 @@ def reverse_country_code(
     r.raise_for_status()
     data = r.json()
     return data.get("address", {}).get("country_code", "").upper()
+
+
+def reverse_place_name(
+    lat: float,
+    lon: float,
+    session: requests.Session,
+    user_agent: str = USER_AGENT,
+    zoom: int = 14,
+) -> str:
+    """Return a human-readable name for a coordinate (``''`` when none is known).
+
+    Prefers the matched object's own name, then the most local named address part
+    (neighbourhood/town/…), then the display name. Raises on HTTP errors — callers
+    that only want a nicer label should catch :class:`requests.RequestException`.
+    """
+    params = {
+        "lat": lat,
+        "lon": lon,
+        "format": "jsonv2",
+        "zoom": zoom,
+        "addressdetails": 1,
+    }
+    headers = {"User-Agent": user_agent}
+    r = session.get(NOMINATIM_URL, params=params, headers=headers, timeout=30)
+    r.raise_for_status()
+    data = r.json()
+    name = str(data.get("name") or "").strip()
+    if name:
+        return name
+    address = data.get("address") or {}
+    for key in _PLACE_NAME_KEYS:
+        value = str(address.get(key, "")).strip()
+        if value:
+            return value
+    return str(data.get("display_name") or "").strip()
 
 
 def detect_country_segments(

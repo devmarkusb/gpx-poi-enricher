@@ -57,6 +57,7 @@ class EasyFragment : Fragment() {
         profileFromPrefsApplied = false
         val ctx = requireContext()
         binding.editPointInput.setText(GuiStatePreferences.readEasyPointInput(ctx))
+        binding.editPointRadius.setText(GuiStatePreferences.readEasyPointRadius(ctx))
         binding.searchModeGroup.check(
             if (GuiStatePreferences.readEasyPointMode(ctx)) binding.radioPointSearch.id else binding.radioTrackSearch.id,
         )
@@ -174,6 +175,7 @@ class EasyFragment : Fragment() {
         binding.btnGenerate.setOnClickListener {
             val pointMode = binding.radioPointSearch.isChecked
             val url = (if (pointMode) binding.editPointInput else binding.editUrl).text?.toString() ?: ""
+            val radius = binding.editPointRadius.text?.toString() ?: ""
             val extras = binding.editExtraUrls.text?.toString() ?: ""
             val parts = binding.editMilestoneParts.text?.toString()?.trim()?.toIntOrNull()?.coerceIn(0, 9999) ?: 0
             val profileIx = binding.spinnerProfile.selectedItemPosition
@@ -183,7 +185,15 @@ class EasyFragment : Fragment() {
                         requireContext(),
                         Manifest.permission.WRITE_EXTERNAL_STORAGE,
                     ) == PackageManager.PERMISSION_GRANTED
-                vm.generate(url, extras, profileIx, parts, legacyStorageGranted = legacyOk, pointMode = pointMode)
+                vm.generate(
+                    url,
+                    extras,
+                    profileIx,
+                    parts,
+                    legacyStorageGranted = legacyOk,
+                    pointMode = pointMode,
+                    pointRadius = radius,
+                )
             }
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
                 ContextCompat.checkSelfPermission(
@@ -215,7 +225,6 @@ class EasyFragment : Fragment() {
         binding.pointInputCard.visibility = if (point) View.VISIBLE else View.GONE
         binding.layoutMilestoneParts.visibility = if (point) View.GONE else View.VISIBLE
         binding.backgroundNoticeCard.visibility = if (point) View.GONE else View.VISIBLE
-        binding.pointRadiusHint.visibility = if (point) View.VISIBLE else View.GONE
     }
 
     override fun onResume() {
@@ -238,6 +247,7 @@ class EasyFragment : Fragment() {
                 milestoneParts,
                 b.radioPointSearch.isChecked,
                 b.editPointInput.text?.toString() ?: "",
+                b.editPointRadius.text?.toString() ?: "",
             )
         }
         super.onStop()

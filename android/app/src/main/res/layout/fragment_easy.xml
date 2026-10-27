@@ -61,6 +61,23 @@
                         android:inputType="textUri"
                         android:singleLine="true" />
                 </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/layout_point_radius"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:hint="@string/hint_point_radius"
+                    app:helperText="@string/helper_point_radius"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/edit_point_radius"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="numberDecimal"
+                        android:singleLine="true" />
+                </com.google.android.material.textfield.TextInputLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -146,14 +163,6 @@
                     android:id="@+id/spinner_profile"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content" />
-
-                <TextView
-                    android:id="@+id/point_radius_hint"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/point_radius_hint"
-                    android:textAppearance="?attr/textAppearanceBodySmall"
-                    android:visibility="gone" />
 
                 <com.google.android.material.textfield.TextInputLayout
                     android:id="@+id/layout_milestone_parts"

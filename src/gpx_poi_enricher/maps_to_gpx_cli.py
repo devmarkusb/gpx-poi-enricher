@@ -30,6 +30,8 @@ try:
 except ImportError:  # pragma: no cover - optional dependency in some environments
     Locale = None
 
+from .naming import safe_filename_component, shorten_label
+
 USER_AGENT = "gpx-poi-enricher/0.1 (https://github.com/devmarkusb/gpx-poi-enricher)"
 
 OSRM_PROFILES = {"driving": "car", "cycling": "bike", "walking": "foot"}
@@ -41,22 +43,6 @@ OSRM_BASE_URL = OSRM_DEFAULT_BASE
 
 DEFAULT_TRACK_NAME = "Route"
 DEFAULT_OUTPUT_STEM = "route"
-
-
-def shorten_label(label: str) -> str:
-    """Return a short city-level name from a potentially verbose address string."""
-    parts = [p.strip() for p in label.split(",")]
-    for part in parts:
-        clean = re.sub(r"^\d[\d\s]*\s+", "", part).strip()
-        if clean and not any(c.isdigit() for c in clean):
-            return clean
-    clean = re.sub(r"^\d[\d\s]*\s+", "", parts[0]).strip()
-    return clean or parts[0]
-
-
-def safe_filename_component(label: str) -> str:
-    """Sanitize a string for use as a filename component."""
-    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", label).strip(". ")
 
 
 def is_default_track_name(name: str | None) -> bool:
