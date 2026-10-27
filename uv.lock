@@ -253,7 +253,7 @@ wheels = [
 
 [[package]]
 name = "gpx-poi-enricher"
-version = "1.19.2"
+version = "1.19.3"
 source = { editable = "." }
 dependencies = [
     { name = "gpxpy" },
