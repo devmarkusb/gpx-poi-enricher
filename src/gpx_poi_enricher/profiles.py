@@ -19,15 +19,22 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 import os
 import pathlib
 import re
 import sys
+import tempfile
 from typing import Any
 
 import yaml
 
-_BUILTIN_PROFILES_DIR = pathlib.Path(__file__).parent.parent.parent / "profiles"
+_PACKAGED_PROFILES_DIR = pathlib.Path(__file__).parent / "data" / "profiles"
+_BUILTIN_PROFILES_DIR = (
+    _PACKAGED_PROFILES_DIR
+    if _PACKAGED_PROFILES_DIR.is_dir()
+    else pathlib.Path(__file__).parent.parent.parent / "profiles"
+)
 
 _FALLBACK_DEFAULTS = {
     "max_km": 10.0,
@@ -139,15 +146,27 @@ def _yaml_paths_in_dir(d: pathlib.Path) -> list[pathlib.Path]:
     return sorted([*d.glob("*.yaml"), *d.glob("*.yml")])
 
 
+def _profiles_in_dir(d: pathlib.Path) -> dict[str, SearchProfile]:
+    """Resolve aliases consistently; canonical files written by save_profile win."""
+    profiles: dict[str, SearchProfile] = {}
+    canonical_ids: set[str] = set()
+    for path in _yaml_paths_in_dir(d):
+        profile = _parse_profile(path)
+        canonical = path.stem == profile.id
+        if canonical or profile.id not in canonical_ids:
+            profiles[profile.id] = profile
+        if canonical:
+            canonical_ids.add(profile.id)
+    return profiles
+
+
 def load_all_profiles(profiles_dir: pathlib.Path | None = None) -> dict[str, SearchProfile]:
     """Load YAML profiles from the default merge locations, or from *profiles_dir* only."""
     merged: dict[str, SearchProfile] = {}
     for d in _resolved_profile_dirs(profiles_dir):
         if not d.is_dir():
             continue
-        for path in _yaml_paths_in_dir(d):
-            p = _parse_profile(path)
-            merged[p.id] = p
+        merged.update(_profiles_in_dir(d))
     return merged
 
 
@@ -165,8 +184,7 @@ def load_all_profiles_with_sources(
         if not d.is_dir():
             continue
         label = _dir_source_label(d, dirs, profiles_dir)
-        for path in _yaml_paths_in_dir(d):
-            p = _parse_profile(path)
+        for p in _profiles_in_dir(d).values():
             merged[p.id] = (p, label)
     return merged
 
@@ -219,10 +237,8 @@ def load_profile(profile_id: str, profiles_dir: pathlib.Path | None = None) -> S
     for d in reversed(dirs):
         if not d.is_dir():
             continue
-        for ext in (".yaml", ".yml"):
-            path = d / f"{pid}{ext}"
-            if path.exists():
-                return _parse_profile(path)
+        if profile := _profiles_in_dir(d).get(pid):
+            return profile
     searched = ", ".join(str(x) for x in dirs) if dirs else "(no directories)"
     avail = sorted(load_all_profiles(profiles_dir).keys())
     raise FileNotFoundError(
@@ -233,7 +249,29 @@ def load_profile(profile_id: str, profiles_dir: pathlib.Path | None = None) -> S
 def _parse_profile(path: pathlib.Path) -> SearchProfile:
     with path.open(encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
+    if isinstance(data, dict) and not data.get("id"):
+        data["id"] = path.stem
     return profile_from_mapping(data, path_hint=str(path))
+
+
+def validate_search_defaults(*, max_km, sample_km, batch_size, retries) -> None:
+    """Reject invalid distances and counts before constructing queries or batches."""
+    for key, value in (
+        ("max_km", max_km),
+        ("sample_km", sample_km),
+        ("batch_size", batch_size),
+        ("retries", retries),
+    ):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int | float)
+            or not math.isfinite(value)
+            or (value < 0 if key == "retries" else value <= 0)
+            or (key in {"batch_size", "retries"} and int(value) != value)
+        ):
+            constraint = "nonnegative" if key == "retries" else "positive"
+            kind = "integer" if key in {"batch_size", "retries"} else "number"
+            raise ValueError(f"{key} must be a finite {constraint} {kind}.")
 
 
 def _parse_tag_subclauses(
@@ -261,7 +299,10 @@ def profile_from_mapping(data: Any, path_hint: str = "?") -> SearchProfile:
     if not profile_id:
         raise ValueError(f"Profile ({path_hint}) needs a non-empty id.")
 
-    defaults = {**_FALLBACK_DEFAULTS, **(data.get("defaults") or {})}
+    raw_defaults = data.get("defaults") or {}
+    if not isinstance(raw_defaults, dict):
+        raise ValueError(f"Profile ({path_hint}): defaults must be a mapping.")
+    defaults = {**_FALLBACK_DEFAULTS, **raw_defaults}
 
     early_cancel = bool(defaults["early_cancel_if_no_pois"])
     early_after = int(defaults["early_cancel_after_batches"])
@@ -306,16 +347,24 @@ def profile_from_mapping(data: Any, path_hint: str = "?") -> SearchProfile:
         else:
             raise ValueError(f"Profile ({path_hint}): terms[{lang!r}] must be a list or string.")
 
+    max_km = float(defaults["max_km"])
+    sample_km = float(defaults["sample_km"])
+    batch_size = float(defaults["batch_size"])
+    retries = float(defaults["retries"])
+    validate_search_defaults(
+        max_km=max_km, sample_km=sample_km, batch_size=batch_size, retries=retries
+    )
+
     return SearchProfile(
         id=profile_id,
         description=str(data.get("description", profile_id)),
         symbol=str(data.get("symbol", "Pin")),
         tags=tuple(tags_list),
         terms=terms,
-        max_km=float(defaults["max_km"]),
-        sample_km=float(defaults["sample_km"]),
-        batch_size=int(defaults["batch_size"]),
-        retries=int(defaults["retries"]),
+        max_km=max_km,
+        sample_km=sample_km,
+        batch_size=int(batch_size),
+        retries=int(retries),
         early_cancel_if_no_pois=early_cancel,
         early_cancel_after_batches=early_after,
         must_match_terms=bool(data.get("must_match_terms", False)),
@@ -380,22 +429,31 @@ def profile_from_json_text(text: str) -> SearchProfile:
 
 def save_profile(profile: SearchProfile, profiles_dir: pathlib.Path | None = None) -> pathlib.Path:
     """Write *profile* to the user writable directory as ``{id}.yaml``."""
-    _validate_profile_id(profile.id)
+    profile = dataclasses.replace(profile, id=normalize_profile_id(profile.id))
     out_dir = user_profiles_write_dir(profiles_dir)
     path = out_dir / f"{profile.id}.yaml"
     text = dump_profile_yaml(profile)
-    path.write_text(text, encoding="utf-8")
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=out_dir, suffix=".tmp", delete=False
+        ) as fh:
+            temporary = pathlib.Path(fh.name)
+            fh.write(text)
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     return path
 
 
 def delete_user_profile(profile_id: str, profiles_dir: pathlib.Path | None = None) -> bool:
     """Remove ``{id}.yaml`` / ``{id}.yml`` from the user directory only. Returns True if a file was removed."""
-    _validate_profile_id(profile_id)
+    profile_id = normalize_profile_id(profile_id)
     out_dir = user_profiles_write_dir(profiles_dir)
     removed = False
-    for ext in (".yaml", ".yml"):
-        p = out_dir / f"{profile_id}{ext}"
-        if p.exists():
+    for p in _yaml_paths_in_dir(out_dir):
+        if _parse_profile(p).id == profile_id:
             p.unlink()
             removed = True
     return removed

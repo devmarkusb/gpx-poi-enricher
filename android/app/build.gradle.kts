@@ -157,10 +157,10 @@ chaquopy {
 }
 
 // Sync original YAML profiles into assets before every build — single source of truth
-tasks.register<Copy>("syncProfileAssets") {
+tasks.register<Sync>("syncProfileAssets") {
     from("../../profiles")
     into("src/main/assets/profiles")
-    include("*.yaml")
+    include("*.yaml", "*.yml")
 }
 tasks.named("preBuild") { dependsOn("syncProfileAssets") }
 

@@ -2,6 +2,7 @@ package com.gpxpoienricher.monetization
 
 import android.app.Activity
 import com.google.android.ump.ConsentRequestParameters
+import com.google.android.ump.ConsentInformation
 import com.google.android.ump.UserMessagingPlatform
 
 /**
@@ -10,7 +11,17 @@ import com.google.android.ump.UserMessagingPlatform
  */
 object ConsentHelper {
 
-    fun requestConsentIfNeeded(activity: Activity, onFinished: () -> Unit) {
+    fun privacyOptionsRequired(activity: Activity): Boolean =
+        UserMessagingPlatform.getConsentInformation(activity).privacyOptionsRequirementStatus ==
+            ConsentInformation.PrivacyOptionsRequirementStatus.REQUIRED
+
+    fun showPrivacyOptions(activity: Activity, onFinished: (Boolean) -> Unit) {
+        UserMessagingPlatform.showPrivacyOptionsForm(activity) {
+            onFinished(UserMessagingPlatform.getConsentInformation(activity).canRequestAds())
+        }
+    }
+
+    fun requestConsentIfNeeded(activity: Activity, onFinished: (Boolean) -> Unit) {
         val consentInformation = UserMessagingPlatform.getConsentInformation(activity)
         val params = ConsentRequestParameters.Builder().build()
         consentInformation.requestConsentInfoUpdate(
@@ -18,10 +29,10 @@ object ConsentHelper {
             params,
             {
                 UserMessagingPlatform.loadAndShowConsentFormIfRequired(activity) { _ ->
-                    onFinished()
+                    onFinished(consentInformation.canRequestAds())
                 }
             },
-            { _ -> onFinished() },
+            { _ -> onFinished(consentInformation.canRequestAds()) },
         )
     }
 }

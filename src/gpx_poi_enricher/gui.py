@@ -12,6 +12,7 @@ from __future__ import annotations
 import pathlib
 import sys
 import threading
+from functools import wraps
 from typing import Any
 
 import requests
@@ -79,6 +80,17 @@ from .route_detours import (
 from .split_cli import add_split_waypoints, is_detour_track_path, milestone_sidecar_path
 
 # ── Stderr capture ─────────────────────────────────────────────────────────────
+
+_stderr_lock = threading.Lock()
+
+
+def _serialized_worker_run(run):
+    @wraps(run)
+    def serialized(*args, **kwargs):
+        with _stderr_lock:
+            return run(*args, **kwargs)
+
+    return serialized
 
 
 class _LogEmitter(QObject):
@@ -260,6 +272,7 @@ class _EnricherWorker(QThread):
         self._resume = resume
         self._kwargs = kwargs
 
+    @_serialized_worker_run
     def run(self) -> None:
         emitter = _LogEmitter()
         emitter.message.connect(self.log_message)
@@ -339,6 +352,7 @@ class _MapsWorker(QThread):
         self._mode = mode
         self._track_name = track_name
 
+    @_serialized_worker_run
     def run(self) -> None:
         # Redirect stderr so that _resolve_waypoints geocoding messages are captured
         emitter = _LogEmitter()
@@ -391,12 +405,11 @@ class _MapsWorker(QThread):
                 for j, (wpts, pts) in enumerate(routes[1:], start=2):
                     alt_path = out_dir / f"{stem}-full-{j:02d}.gpx"
                     alt_track = f"{shorten_label(wpts[0][2])} – {shorten_label(wpts[-1][2])}"
-                    if alt_path.exists():
+                    if _write_gpx(pts, wpts, str(alt_path), alt_track, reuse_existing=True):
                         self.log_message.emit(
                             f"Alternate route GPX already exists, reusing: {alt_path}"
                         )
                     else:
-                        _write_gpx(pts, wpts, str(alt_path), alt_track)
                         self.log_message.emit(f"Saved alternate GPX: {alt_path}")
 
                 prior_alt_pts: list[list[tuple[float, float]]] = []
@@ -424,12 +437,15 @@ class _MapsWorker(QThread):
                         )
                         continue
                     det_path = out_dir / f"{stem}-detour-{j:02d}.gpx"
-                    if det_path.exists():
+                    if _write_gpx_segments(
+                        detour_segs,
+                        [],
+                        str(det_path),
+                        f"Detour (alternate {j})",
+                        reuse_existing=True,
+                    ):
                         self.log_message.emit(f"Detour GPX already exists, reusing: {det_path}")
                     else:
-                        _write_gpx_segments(
-                            detour_segs, [], str(det_path), f"Detour (alternate {j})"
-                        )
                         n_pts = sum(len(s) for s in detour_segs)
                         self.log_message.emit(
                             f"Saved detour: {det_path} ({len(detour_segs)} segments, {n_pts} pts)"
@@ -447,6 +463,7 @@ class _MapsWorker(QThread):
         finally:
             capture.flush()
             sys.stderr = old_stderr
+            session.close()
 
 
 class _RouteNamesPreviewWorker(QThread):
@@ -459,6 +476,7 @@ class _RouteNamesPreviewWorker(QThread):
         super().__init__()
         self._url = url
 
+    @_serialized_worker_run
     def run(self) -> None:
         session = requests.Session()
         try:
@@ -554,6 +572,7 @@ class _EasyWorker(QThread):
         )
         self.error.emit(str(exc))
 
+    @_serialized_worker_run
     def run(self) -> None:
         emitter = _LogEmitter()
         emitter.message.connect(self.log_message)
@@ -601,6 +620,7 @@ class _EasyWorker(QThread):
             for idx, raw_url in enumerate(self._urls):
                 if self._cancel_event.is_set():
                     self.log_message.emit("Cancelled.")
+                    self.finished.emit()
                     return
                 url = raw_url.strip()
                 self.log_message.emit(f"Route {idx + 1}/{len(self._urls)}: parsing…")
@@ -633,24 +653,26 @@ class _EasyWorker(QThread):
             track_path = out_dir / f"{base_name}.gpx"
             track_name = f"{start_label} – {finish_label}"
 
-            if track_path.exists():
+            if _write_gpx(
+                primary_pts, primary_wp, str(track_path), track_name, reuse_existing=True
+            ):
                 self.log_message.emit(f"Primary track already exists, reusing: {track_path}")
             else:
-                _write_gpx(primary_pts, primary_wp, str(track_path), track_name)
                 self.log_message.emit(f"Primary track saved: {track_path}")
 
             tracks_to_enrich: list[str] = [str(track_path)]
+            full_route_paths: list[str] = [str(track_path)]
 
             if len(routes) > 1:
                 for j, (wpts, pts) in enumerate(routes[1:], start=2):
                     alt_path = out_dir / f"{base_name}-full-{j:02d}.gpx"
                     alt_track = f"{shorten_label(wpts[0][2])} – {shorten_label(wpts[-1][2])}"
-                    if alt_path.exists():
+                    full_route_paths.append(str(alt_path))
+                    if _write_gpx(pts, wpts, str(alt_path), alt_track, reuse_existing=True):
                         self.log_message.emit(
                             f"Alternate route GPX already exists, reusing: {alt_path}"
                         )
                     else:
-                        _write_gpx(pts, wpts, str(alt_path), alt_track)
                         self.log_message.emit(f"Alternate route GPX: {alt_path}")
 
                 prior_alt_pts: list[list[tuple[float, float]]] = []
@@ -677,12 +699,15 @@ class _EasyWorker(QThread):
                         )
                         continue
                     det_path = out_dir / f"{base_name}-detour-{j:02d}.gpx"
-                    if det_path.exists():
+                    if _write_gpx_segments(
+                        detour_segs,
+                        [],
+                        str(det_path),
+                        f"Detour (alternate {j})",
+                        reuse_existing=True,
+                    ):
                         self.log_message.emit(f"Detour GPX already exists, reusing: {det_path}")
                     else:
-                        _write_gpx_segments(
-                            detour_segs, [], str(det_path), f"Detour (alternate {j})"
-                        )
                         n_pts = sum(len(s) for s in detour_segs)
                         self.log_message.emit(
                             f"Detour GPX: {det_path} ({len(detour_segs)} segments, {n_pts} pts)"
@@ -691,7 +716,7 @@ class _EasyWorker(QThread):
 
             milestone_output_paths: list[str] = []
             if self._split_segments >= 2:
-                for tpath in tracks_to_enrich:
+                for tpath in full_route_paths:
                     if is_detour_track_path(tpath):
                         continue
                     mpath = milestone_sidecar_path(tpath)
@@ -707,6 +732,7 @@ class _EasyWorker(QThread):
 
             if self._cancel_event.is_set():
                 self.log_message.emit("Cancelled.")
+                self.finished.emit()
                 return
 
             try:
@@ -732,6 +758,7 @@ class _EasyWorker(QThread):
             self.error.emit(str(exc))
         finally:
             sys.stderr = old_stderr
+            session.close()
 
 
 # ── Tab: Easy mode ────────────────────────────────────────────────────────────
@@ -1016,6 +1043,8 @@ class _EasyTab(QWidget):
         self._status_lbl.setText(
             f"Done — {total_pois} POI(s) in {n_files} file(s)." if n_files else "Done."
         )
+        if self._cancel_event.is_set():
+            self._status_lbl.setText("Cancelled.")
         self._run_btn.setEnabled(True)
         self._cancel_btn.setEnabled(False)
 
@@ -1865,6 +1894,13 @@ class MainWindow(QMainWindow):
         self._maps_tab.write_gui_settings(s)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        tabs = (self._easy_widget, self._enricher_tab, self._split_tab, self._maps_tab)
+        workers = [getattr(tab, "_worker", None) for tab in tabs]
+        workers.append(self._maps_tab._preview_worker)
+        if any(worker is not None and worker.isRunning() for worker in workers):
+            self.statusBar().showMessage("Work is running. Cancel it or wait before closing.")
+            event.ignore()
+            return
         self._save_gui_settings()
         super().closeEvent(event)
 

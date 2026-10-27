@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import dataclasses
+import pathlib
 from typing import Any
 
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal
@@ -97,7 +99,7 @@ class _ProfileEditorDialog(QDialog):
         self._retries.setRange(0, 20)
         self._retries.setValue(profile.retries)
 
-        self._early_cancel = QCheckBox("Stop early after consecutive empty batches")
+        self._early_cancel = QCheckBox("Stop early if the first batches find no POIs")
         self._early_cancel.setChecked(profile.early_cancel_if_no_pois)
 
         self._early_after = QSpinBox()
@@ -130,7 +132,7 @@ class _ProfileEditorDialog(QDialog):
         self._tags_table.setHorizontalHeaderLabels(["key", "value"])
         self._tags_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         for t in profile.tags:
-            self._add_tag_row(str(t.get("key", "")), str(t.get("value", "")))
+            self._add_tag_row(str(t.get("key", "")), str(t.get("value", "")), t)
         if self._tags_table.rowCount() == 0:
             self._add_tag_row("", "")
         tags_btns = QHBoxLayout()
@@ -149,7 +151,7 @@ class _ProfileEditorDialog(QDialog):
         self._terms_table.setHorizontalHeaderLabels(["language", "terms (comma-separated)"])
         self._terms_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         for lang, terms in sorted(profile.terms.items()):
-            self._add_term_row(lang, ", ".join(terms))
+            self._add_term_row(lang, ", ".join(terms), terms)
         if self._terms_table.rowCount() == 0:
             self._add_term_row("EN", "")
         tb = QHBoxLayout()
@@ -191,11 +193,39 @@ class _ProfileEditorDialog(QDialog):
                 self._yaml_edit.setPlainText(dump_profile_yaml(p))
             except Exception:
                 pass
+        elif idx == 0 and hasattr(self, "_yaml_edit"):
+            try:
+                p = profile_from_yaml_text(self._yaml_edit.toPlainText())
+            except Exception as exc:
+                QMessageBox.warning(self, "Invalid profile", str(exc))
+                self._tabs.blockSignals(True)
+                self._tabs.setCurrentIndex(1)
+                self._tabs.blockSignals(False)
+                return
+            if self._id_editable:
+                self._id_edit.setText(p.id)
+            self._desc_edit.setText(p.description)
+            self._symbol_edit.setText(p.symbol)
+            self._max_km.setValue(p.max_km)
+            self._sample_km.setValue(p.sample_km)
+            self._batch_size.setValue(p.batch_size)
+            self._retries.setValue(p.retries)
+            self._early_cancel.setChecked(p.early_cancel_if_no_pois)
+            self._early_after.setValue(p.early_cancel_after_batches)
+            self._must_match.setChecked(p.must_match_terms)
+            self._require_name.setChecked(p.require_distinct_name)
+            self._tags_table.setRowCount(0)
+            for tag in p.tags:
+                self._add_tag_row(tag["key"], tag["value"], tag)
+            self._terms_table.setRowCount(0)
+            for lang, terms in sorted(p.terms.items()):
+                self._add_term_row(lang, ", ".join(terms), terms)
 
-    def _add_tag_row(self, k: str, v: str) -> None:
+    def _add_tag_row(self, k: str, v: str, original: dict | None = None) -> None:
         r = self._tags_table.rowCount()
         self._tags_table.insertRow(r)
         self._tags_table.setItem(r, 0, QTableWidgetItem(k))
+        self._tags_table.item(r, 0).setData(Qt.ItemDataRole.UserRole, copy.deepcopy(original or {}))
         self._tags_table.setItem(r, 1, QTableWidgetItem(v))
 
     def _remove_tag_row(self) -> None:
@@ -203,11 +233,13 @@ class _ProfileEditorDialog(QDialog):
         if r >= 0:
             self._tags_table.removeRow(r)
 
-    def _add_term_row(self, lang: str, terms: str) -> None:
+    def _add_term_row(self, lang: str, terms: str, original: list[str] | None = None) -> None:
         r = self._terms_table.rowCount()
         self._terms_table.insertRow(r)
         self._terms_table.setItem(r, 0, QTableWidgetItem(lang))
         self._terms_table.setItem(r, 1, QTableWidgetItem(terms))
+        if original is not None:
+            self._terms_table.item(r, 1).setData(Qt.ItemDataRole.UserRole, list(original))
 
     def _remove_term_row(self) -> None:
         r = self._terms_table.currentRow()
@@ -228,7 +260,8 @@ class _ProfileEditorDialog(QDialog):
             ks = k.text().strip() if k else ""
             vs = v.text().strip() if v else ""
             if ks and vs:
-                tags.append({"key": ks, "value": vs})
+                original = k.data(Qt.ItemDataRole.UserRole) or {}
+                tags.append({**copy.deepcopy(original), "key": ks, "value": vs})
         terms: dict[str, list[str]] = {}
         for row in range(self._terms_table.rowCount()):
             li = self._terms_table.item(row, 0)
@@ -237,7 +270,12 @@ class _ProfileEditorDialog(QDialog):
             raw = ti.text().strip() if ti else ""
             if not lang:
                 continue
-            parts = [p.strip() for p in raw.split(",") if p.strip()]
+            original_terms = ti.data(Qt.ItemDataRole.UserRole) if ti else None
+            parts = (
+                list(original_terms)
+                if original_terms is not None and raw == ", ".join(original_terms)
+                else [p.strip() for p in raw.split(",") if p.strip()]
+            )
             if parts:
                 terms[lang] = parts
         data: dict[str, Any] = {
@@ -623,7 +661,7 @@ class ProfilesManagerTab(QWidget):
         if not path:
             return
         try:
-            text = open(path, encoding="utf-8").read()
+            text = pathlib.Path(path).read_text(encoding="utf-8")
             prof = profile_from_yaml_text(text)
             dlg = _ProfileEditorDialog(
                 self, profile=prof, id_editable=True, title="Import profile — review and save"
@@ -659,7 +697,7 @@ class ProfilesManagerTab(QWidget):
         if not path:
             return
         try:
-            open(path, "w", encoding="utf-8").write(dump_profile_yaml(prof))
+            pathlib.Path(path).write_text(dump_profile_yaml(prof), encoding="utf-8")
         except Exception as exc:
             QMessageBox.warning(self, "Export failed", str(exc))
 

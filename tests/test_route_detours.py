@@ -100,3 +100,10 @@ def test_same_direction_not_reverse_itinerary():
     primary = [(48.0, 11.0), (49.0, 11.5)]
     alt_fw = [(48.01, 11.01), (49.01, 11.51)]
     assert not alternate_is_reverse_itinerary(primary, alt_fw, endpoint_km=5.0)
+
+
+def test_far_ranges_do_not_merge_across_a_long_one_vertex_gap():
+    from gpx_poi_enricher.route_detours import _merge_far_ranges
+
+    points = [(0, 0), (0, 1), (0, 2)]
+    assert _merge_far_ranges(points, [(0, 1), (2, 3)], gap_merge_km=0.12) == [(0, 1), (2, 3)]

@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
 import java.io.File
 
 class SplitViewModel(app: Application) : AndroidViewModel(app) {
@@ -53,6 +54,7 @@ class SplitViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun run(segments: Int) {
+        if (job?.isCompleted == false) return
         if (segments < 2) { _snackbar.value = "Segments must be at least 2"; return }
         val inputUri = _inputUri.value ?: run { _snackbar.value = "Select an input GPX file"; return }
         val outputUri = _outputUri.value ?: run { _snackbar.value = "Select an output file"; return }
@@ -70,7 +72,9 @@ class SplitViewModel(app: Application) : AndroidViewModel(app) {
                     val inTmp = File.createTempFile("gpx_in", ".gpx", ctx.cacheDir)
                     val outTmp = File.createTempFile("gpx_out", ".gpx", ctx.cacheDir)
                     try {
-                        ctx.contentResolver.openInputStream(inputUri)!!.use { it.copyTo(inTmp.outputStream()) }
+                        ctx.contentResolver.openInputStream(inputUri)!!.use { input ->
+                            inTmp.outputStream().use { input.copyTo(it) }
+                        }
 
                         Python.getInstance().getModule("gpx_bridge").callAttr(
                             "split",
@@ -78,7 +82,10 @@ class SplitViewModel(app: Application) : AndroidViewModel(app) {
                             segments, LogCallback(::log)
                         )
 
-                        ctx.contentResolver.openOutputStream(outputUri)!!.use { outTmp.inputStream().copyTo(it) }
+                        ensureActive()
+                        ctx.contentResolver.openOutputStream(outputUri, "wt")!!.use { output ->
+                            outTmp.inputStream().use { it.copyTo(output) }
+                        }
                         log("Done! Wrote $segments milestone waypoints (1/$segments–$segments/$segments).")
                         _snackbar.postValue("Done!")
                     } finally {

@@ -359,3 +359,52 @@ def test_add_waypoints_to_gpx_empty_list_is_noop():
     root = ET.Element(f"{{{GPX_NS}}}gpx")
     add_waypoints_to_gpx(root, [], symbol="Campground", type_label="Campingplatz")
     assert list(root) == []
+
+
+def test_waypoint_elements_follow_gpx_schema_order():
+    root = ET.Element(f"{{{GPX_NS}}}gpx")
+    ET.SubElement(root, f"{{{GPX_NS}}}trk")
+    ET.SubElement(root, f"{{{GPX_NS}}}extensions")
+    add_waypoints_to_gpx(root, _make_poi_items(1), symbol="Pin", type_label="POI")
+    assert [child.tag.rsplit("}", 1)[-1] for child in root] == ["wpt", "trk", "extensions"]
+    wpt = root.find(f"{{{GPX_NS}}}wpt")
+    assert [child.tag.rsplit("}", 1)[-1] for child in wpt] == ["name", "desc", "sym", "type"]
+
+
+def test_nearest_track_vertex_is_not_lost_by_coarse_sampling():
+    points = [(0.0, 0.001 + 0.199 * i / 100) for i in range(101)]
+    points += [(0.0, 0.2 - 0.002 * i) for i in range(1, 201)]
+    assert (0.0, 0.0) in points
+    assert min_distance_to_track_km(0.0, 0.0, points) == 0.0
+
+
+def test_haversine_antipodal_roundoff_stays_finite():
+    import math
+
+    d = haversine_km(
+        22.737115985114173, -142.32893081756248, -22.737115985114173, 37.67106918243752
+    )
+    assert math.isfinite(d)
+    assert d == pytest.approx(math.pi * 6371.0088)
+
+
+def test_polyline_distance_across_dateline():
+    track = [(0.0, 179.9), (0.0, -179.9)]
+    assert min_distance_to_polyline_segments_km(0.0, 180.0, track) < 0.001
+    assert min_distance_to_polyline_segments_km(0.0, 0.0, track) > 19000
+
+
+def test_polyline_distance_on_remote_loop_segment():
+    points = [(0.0, 0.001 + 0.199 * i / 100) for i in range(101)]
+    points += [(0.0, 0.2 - 0.2 * i / 113) for i in range(1, 227)]
+    assert min_distance_to_polyline_segments_km(0.0, 0.0, points) < 0.001
+
+
+@pytest.mark.parametrize("lat,lon", [("nan", "0"), ("91", "0"), ("0", "181")])
+def test_invalid_gpx_coordinates_are_rejected(tmp_path, lat, lon):
+    path = tmp_path / "invalid.gpx"
+    path.write_text(
+        f'<gpx xmlns="{GPX_NS}"><trk><trkseg><trkpt lat="{lat}" lon="{lon}"/></trkseg></trk></gpx>'
+    )
+    with pytest.raises(ValueError, match="coordinates"):
+        parse_gpx_trackpoints(str(path))

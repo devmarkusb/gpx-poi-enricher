@@ -11,12 +11,19 @@ class GpxApp : Application() {
 
     lateinit var monetization: PlayStoreMonetization
         private set
+    private var adsInitialized = false
+
+    @Synchronized
+    fun initializeAdsIfNeeded() {
+        if (adsInitialized) return
+        adsInitialized = true
+        MobileAds.initialize(this) {}
+    }
 
     override fun onCreate() {
         super.onCreate()
         monetization = PlayStoreMonetization(this)
         monetization.start()
-        MobileAds.initialize(this) {}
 
         if (!Python.isStarted()) {
             Python.start(AndroidPlatform(this))
@@ -49,6 +56,7 @@ class GpxApp : Application() {
          * Ensures ``profiles/builtin`` (from assets) and ``profiles/user`` (custom) exist.
          * Legacy flat ``*.yaml`` files in the profiles root are moved into ``user/``.
          */
+        @Synchronized
         fun extractProfiles(): File {
             val root = profilesDir()
             root.mkdirs()
@@ -66,13 +74,22 @@ class GpxApp : Application() {
                 }
             }
 
-            app.assets.list("profiles")?.forEach { name ->
-                if (name.endsWith(".yaml") || name.endsWith(".yml")) {
-                    File(builtin, name).outputStream().use { out ->
-                        app.assets.open("profiles/$name").copyTo(out)
+            val names = app.assets.list("profiles").orEmpty()
+                .filter { it.endsWith(".yaml") || it.endsWith(".yml") }.toSet()
+            names.forEach { name ->
+                val temporary = File(builtin, ".$name.tmp")
+                try {
+                    app.assets.open("profiles/$name").use { input ->
+                        temporary.outputStream().use { input.copyTo(it) }
                     }
+                    check(temporary.renameTo(File(builtin, name))) { "Could not install profile $name" }
+                } finally {
+                    temporary.delete()
                 }
             }
+            builtin.listFiles()?.filter {
+                (it.name.endsWith(".yaml") || it.name.endsWith(".yml")) && it.name !in names
+            }?.forEach { it.delete() }
             return root
         }
     }

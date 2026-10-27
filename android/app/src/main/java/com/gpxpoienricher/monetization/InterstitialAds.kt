@@ -83,6 +83,7 @@ class InterstitialAds(
     }
 
     fun release() {
+        consentReady = false
         ad?.fullScreenContentCallback = null
         ad = null
         loading = false

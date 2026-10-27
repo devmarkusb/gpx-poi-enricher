@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.security.MessageDigest
+import java.util.UUID
 
 class EnricherViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -60,6 +61,7 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
 
     private var job: Job? = null
     private var resumeState: ResumeState? = null
+    private var operationId: String? = null
 
     init {
         reloadProfiles()
@@ -75,6 +77,7 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setInputFile(uri: Uri) {
+        if (_inputUri.value == uri) return
         val name = fileName(uri)
         _inputUri.value = uri.takeIf { name != null }
         _inputName.value = name
@@ -83,6 +86,7 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setOutputFile(uri: Uri) {
+        if (_outputUri.value == uri) return
         val name = fileName(uri)
         _outputUri.value = uri.takeIf { name != null }
         _outputName.value = name
@@ -97,6 +101,7 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
         pointMode: Boolean,
         pointInput: String,
     ) {
+        if (job?.isActive == true) return
         if (resumeState != null && !pointMode) {
             resume()
             return
@@ -119,6 +124,8 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
 
+        val runId = UUID.randomUUID().toString()
+        operationId = runId
         job = viewModelScope.launch {
             _isRunning.value = true
             _canResume.value = false
@@ -130,7 +137,7 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 withContext(Dispatchers.IO) {
                     if (pointMode) {
-                        runPointEnrichment(profile.id, pointInput.trim(), outputUri, maxKm, ::log)
+                        runPointEnrichment(profile.id, pointInput.trim(), outputUri, maxKm, ::log, runId)
                     } else {
                         runEnrichment(
                             profile.id,
@@ -140,6 +147,7 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
                             sampleKm,
                             resume = false,
                             log = ::log,
+                            operationId = runId,
                         )
                     }
                 }
@@ -149,6 +157,7 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
                 log("ERROR: ${e.message}")
                 _snackbar.postValue("Error: ${e.message}")
             } finally {
+                operationId = null
                 _isRunning.value = false
             }
         }
@@ -156,7 +165,10 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun resume() {
         val state = resumeState ?: return
+        if (job?.isActive == true) return
 
+        val runId = UUID.randomUUID().toString()
+        operationId = runId
         job = viewModelScope.launch {
             _isRunning.value = true
             val logs = _logLines.value ?: mutableListOf()
@@ -175,6 +187,7 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
                         state.sampleKm,
                         resume = true,
                         log = ::log,
+                        operationId = runId,
                         inputWorkPath = state.inputWorkPath,
                         outputWorkPath = state.outputWorkPath,
                     )
@@ -185,6 +198,7 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
                 log("ERROR: ${e.message}")
                 _snackbar.postValue("Error: ${e.message}")
             } finally {
+                operationId = null
                 _isRunning.value = false
             }
         }
@@ -198,6 +212,7 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
         sampleKm: Double?,
         resume: Boolean,
         log: (String) -> Unit,
+        operationId: String,
         inputWorkPath: String? = null,
         outputWorkPath: String? = null,
     ) {
@@ -210,7 +225,9 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
             if (outputWorkPath != null) File(outputWorkPath) else File(workDir, "enrich-out-$tag.gpx")
 
         if (!resume) {
-            ctx.contentResolver.openInputStream(inputUri)!!.use { it.copyTo(inWork.outputStream()) }
+            ctx.contentResolver.openInputStream(inputUri)!!.use { input ->
+                inWork.outputStream().use { input.copyTo(it) }
+            }
         }
 
         val resultJson = Python.getInstance().getModule("gpx_bridge").callAttr(
@@ -223,6 +240,7 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
             sampleKm,
             LogCallback(log),
             resume,
+            operationId,
         ).toString()
 
         val obj = org.json.JSONObject(resultJson)
@@ -244,7 +262,9 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         val count = obj.getInt("poi_count")
-        ctx.contentResolver.openOutputStream(outputUri)!!.use { outWork.inputStream().copyTo(it) }
+        ctx.contentResolver.openOutputStream(outputUri, "wt")!!.use { output ->
+            outWork.inputStream().use { it.copyTo(output) }
+        }
         inWork.delete()
         outWork.delete()
         resumeState = null
@@ -259,6 +279,7 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
         outputUri: Uri,
         maxKm: Double?,
         log: (String) -> Unit,
+        operationId: String,
     ) {
         val ctx = getApplication<Application>()
         val workDir = GpxApp.gpxWorkDir().apply { mkdirs() }
@@ -271,11 +292,14 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
             GpxApp.extractProfiles().absolutePath,
             maxKm,
             LogCallback(log),
+            operationId,
         ).toString()
 
         val obj = org.json.JSONObject(resultJson)
         val count = obj.getInt("poi_count")
-        ctx.contentResolver.openOutputStream(outputUri)!!.use { outWork.inputStream().copyTo(it) }
+        ctx.contentResolver.openOutputStream(outputUri, "wt")!!.use { output ->
+            outWork.inputStream().use { it.copyTo(output) }
+        }
         outWork.delete()
         log("Done! Wrote $count waypoints.")
         _snackbar.postValue("Done! Found $count POIs.")
@@ -295,10 +319,17 @@ class EnricherViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun cancel() {
+        val id = operationId ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { Python.getInstance().getModule("gpx_bridge").callAttr("cancel") }
+            runCatching { Python.getInstance().getModule("gpx_bridge").callAttr("cancel", id) }
         }
-        job?.cancel()
+    }
+
+    override fun onCleared() {
+        operationId?.let { id ->
+            runCatching { Python.getInstance().getModule("gpx_bridge").callAttr("cancel", id) }
+        }
+        super.onCleared()
     }
 
     fun clearSnackbar() { _snackbar.value = null }

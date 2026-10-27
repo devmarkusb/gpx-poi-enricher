@@ -8,6 +8,8 @@ import json
 import pathlib
 import sys
 import threading
+import xml.etree.ElementTree as ET
+from contextlib import contextmanager
 
 import requests
 
@@ -18,6 +20,7 @@ from gpx_poi_enricher.enricher import (
     enrich_point_file_named,
     enrich_tracks_to_poi_gpx,
 )
+from gpx_poi_enricher.gpx_utils import GPX_NS
 from gpx_poi_enricher.maps_to_gpx_cli import (
     _expand_url,
     _resolve_waypoints,
@@ -58,6 +61,35 @@ _cancel_event = threading.Event()
 # Serialize stderr redirection: concurrent Chaquopy calls (e.g. easy_generate + enrich) can
 # interleave at the GIL and corrupt sys.stderr if each does old=sys.stderr; sys.stderr=... .
 _stderr_lock = threading.Lock()
+_cancel_lock = threading.Lock()
+_operation_events: dict[str, threading.Event] = {}
+_active_cancel_event = None
+
+
+@contextmanager
+def _operation(operation_id):
+    """Serialize logging while keeping cancellation attached to its own job."""
+    global _active_cancel_event
+    with _cancel_lock:
+        event = (
+            _operation_events.setdefault(operation_id, threading.Event())
+            if operation_id is not None
+            else _cancel_event
+        )
+    with _stderr_lock:
+        if operation_id is None:
+            event.clear()
+        with _cancel_lock:
+            _active_cancel_event = event
+        try:
+            if event.is_set():
+                raise RuntimeError("Operation cancelled by user.")
+            yield event
+        finally:
+            with _cancel_lock:
+                _active_cancel_event = None
+                if operation_id is not None:
+                    _operation_events.pop(operation_id, None)
 
 
 class _LogStream:
@@ -69,18 +101,22 @@ class _LogStream:
     def __init__(self, callback):
         self._cb = callback
         self._buf = ""
+        self._lock = threading.Lock()
 
     def write(self, text):
-        self._buf += text
-        while "\n" in self._buf:
-            line, self._buf = self._buf.split("\n", 1)
-            if line.strip():
-                self._cb.onLog(line.strip())
+        with self._lock:
+            self._buf += text
+            while "\n" in self._buf:
+                line, self._buf = self._buf.split("\n", 1)
+                if line.strip():
+                    self._cb.onLog(line.strip())
+        return len(text)
 
     def flush(self):
-        if self._buf.strip():
-            self._cb.onLog(self._buf.strip())
-            self._buf = ""
+        with self._lock:
+            if self._buf.strip():
+                self._cb.onLog(self._buf.strip())
+                self._buf = ""
 
     def fileno(self):
         raise OSError("not a real file")
@@ -150,15 +186,16 @@ def enrich(
     sample_km,
     log_callback,
     resume: bool = False,
+    operation_id: str | None = None,
 ) -> str:
-    _cancel_event.clear()
-    kwargs = {"cancel_event": _cancel_event}
+    kwargs = {}
     if max_km is not None:
         kwargs["max_km"] = float(max_km)
     if sample_km is not None:
         kwargs["sample_km"] = float(sample_km)
 
-    with _stderr_lock:
+    with _operation(operation_id) as cancel_event:
+        kwargs["cancel_event"] = cancel_event
         old = sys.stderr
         sys.stderr = _LogStream(log_callback)
         try:
@@ -194,13 +231,14 @@ def enrich_point(
     profiles_dir: str,
     max_km,
     log_callback,
+    operation_id: str | None = None,
 ) -> str:
-    _cancel_event.clear()
-    kwargs = {"cancel_event": _cancel_event}
+    kwargs = {}
     if max_km is not None:
         kwargs["max_km"] = float(max_km)
 
-    with _stderr_lock:
+    with _operation(operation_id) as cancel_event:
+        kwargs["cancel_event"] = cancel_event
         old = sys.stderr
         sys.stderr = _LogStream(log_callback)
         try:
@@ -217,18 +255,20 @@ def enrich_point(
             sys.stderr = old
 
 
-def easy_generate_point(location, profile_id, profiles_dir, output_dir, log_callback, max_km=None):
+def easy_generate_point(
+    location, profile_id, profiles_dir, output_dir, log_callback, max_km=None, operation_id=None
+):
     """Enrich around *location* and write ``{name}-{profile_id}.gpx`` under *output_dir*.
 
     ``{name}`` comes from the nearest named POI, else the nearest Nominatim place,
     else the historic ``point-{hash}`` scheme. *max_km* overrides the profile radius.
     """
-    _cancel_event.clear()
-    kwargs = {"cancel_event": _cancel_event}
+    kwargs = {}
     if max_km is not None:
         kwargs["max_km"] = float(max_km)
 
-    with _stderr_lock:
+    with _operation(operation_id) as cancel_event:
+        kwargs["cancel_event"] = cancel_event
         old = sys.stderr
         sys.stderr = _LogStream(log_callback)
         try:
@@ -242,7 +282,7 @@ def easy_generate_point(location, profile_id, profiles_dir, output_dir, log_call
         finally:
             sys.stderr.flush()
             sys.stderr = old
-    if _cancel_event.is_set():
+    if cancel_event.is_set():
         return json.dumps({"cancelled": True})
     return json.dumps(
         {
@@ -255,8 +295,12 @@ def easy_generate_point(location, profile_id, profiles_dir, output_dir, log_call
     )
 
 
-def cancel():
-    _cancel_event.set()
+def cancel(operation_id=None):
+    with _cancel_lock:
+        if operation_id is not None:
+            _operation_events.setdefault(operation_id, threading.Event()).set()
+        else:
+            (_active_cancel_event or _cancel_event).set()
 
 
 def split(input_path: str, output_path: str, segments: int, log_callback) -> None:
@@ -274,8 +318,8 @@ def maps_to_gpx(url: str, output_path: str, mode: str, track_name: str, log_call
     with _stderr_lock:
         old = sys.stderr
         sys.stderr = _LogStream(log_callback)
+        session = requests.Session()
         try:
-            session = requests.Session()
             if "goo.gl" in url or "maps.app" in url:
                 sys.stderr.write("Expanding short URL...\n")
                 url = _expand_url(url, session)
@@ -297,6 +341,7 @@ def maps_to_gpx(url: str, output_path: str, mode: str, track_name: str, log_call
         finally:
             sys.stderr.flush()
             sys.stderr = old
+            session.close()
 
 
 def preview_route_names(url: str, log_callback) -> str:
@@ -320,6 +365,7 @@ def easy_generate(
     output_dir: str,
     log_callback,
     split_segments: int = 0,
+    operation_id: str | None = None,
 ) -> str:
     """Combined Maps→GPX + POI enrichment pipeline for Easy mode (primary + optional alternates).
 
@@ -340,18 +386,17 @@ def easy_generate(
         }
     or ``{cancelled: true}`` if cancelled before completion.
     """
-    _cancel_event.clear()
-    with _stderr_lock:
+    with _operation(operation_id) as cancel_event:
         old = sys.stderr
         sys.stderr = _LogStream(log_callback)
+        session = requests.Session()
         try:
             extra_lines = [ln.strip() for ln in (extras_multiline or "").splitlines() if ln.strip()]
             urls = [primary_url.strip(), *extra_lines]
-            session = requests.Session()
 
             routes: list[tuple[list[tuple[float, float, str]], list[tuple[float, float]]]] = []
             for idx, raw_url in enumerate(urls):
-                if _cancel_event.is_set():
+                if cancel_event.is_set():
                     sys.stderr.write("Cancelled.\n")
                     return json.dumps({"cancelled": True})
                 url = raw_url
@@ -386,12 +431,11 @@ def easy_generate(
 
             track_reused = False
             reused_paths: list[str] = []
-            if pathlib.Path(track_path).exists():
+            if _write_gpx(primary_pts, primary_wp, track_path, track_name, reuse_existing=True):
                 sys.stderr.write(f"Primary track already exists, reusing: {track_path}\n")
                 track_reused = True
                 reused_paths.append(track_path)
             else:
-                _write_gpx(primary_pts, primary_wp, track_path, track_name)
                 sys.stderr.write(f"Primary track saved: {track_path}\n")
 
             tracks_to_enrich: list[str] = [track_path]
@@ -403,13 +447,12 @@ def easy_generate(
                     alt_track = f"{shorten_label(wpts[0][2])} – {shorten_label(wpts[-1][2])}"
                     alt_path_str = str(alt_path)
                     alternate_full_paths.append(alt_path_str)
-                    if alt_path.exists():
+                    if _write_gpx(pts, wpts, alt_path_str, alt_track, reuse_existing=True):
                         sys.stderr.write(
                             f"Alternate route GPX already exists, reusing: {alt_path}\n"
                         )
                         reused_paths.append(alt_path_str)
                     else:
-                        _write_gpx(pts, wpts, alt_path_str, alt_track)
                         sys.stderr.write(f"Alternate route GPX: {alt_path}\n")
 
                 prior_alt_pts: list[list[tuple[float, float]]] = []
@@ -437,11 +480,12 @@ def easy_generate(
                         continue
                     det_path = out_dir / f"{base_name}-detour-{j:02d}.gpx"
                     det_str = str(det_path)
-                    if det_path.exists():
+                    if _write_gpx_segments(
+                        detour_segs, [], det_str, f"Detour (alternate {j})", reuse_existing=True
+                    ):
                         sys.stderr.write(f"Detour GPX already exists, reusing: {det_path}\n")
                         reused_paths.append(det_str)
                     else:
-                        _write_gpx_segments(detour_segs, [], det_str, f"Detour (alternate {j})")
                         n_pts = sum(len(s) for s in detour_segs)
                         sys.stderr.write(
                             f"Detour GPX: {det_path} ({len(detour_segs)} segments, {n_pts} points)\n"
@@ -451,7 +495,7 @@ def easy_generate(
             milestone_paths: list[str] = []
             ss = int(split_segments)
             if ss >= 2:
-                for tpath in tracks_to_enrich:
+                for tpath in [track_path, *alternate_full_paths]:
                     if is_detour_track_path(tpath):
                         continue
                     mpath = milestone_sidecar_path(tpath)
@@ -459,7 +503,7 @@ def easy_generate(
                     milestone_paths.append(mpath)
                     sys.stderr.write(f"Wrote milestone-only GPX ({ss} wpt): {mpath}\n")
 
-            if _cancel_event.is_set():
+            if cancel_event.is_set():
                 sys.stderr.write("Cancelled.\n")
                 return json.dumps({"cancelled": True})
 
@@ -473,7 +517,7 @@ def easy_generate(
                     profile_id,
                     out_dir,
                     profiles_dir=pathlib.Path(profiles_dir),
-                    cancel_event=_cancel_event,
+                    cancel_event=cancel_event,
                     progress_interval=5.0,
                 )
             except EnrichInterrupted as exc:
@@ -533,6 +577,7 @@ def easy_generate(
         finally:
             sys.stderr.flush()
             sys.stderr = old
+            session.close()
 
 
 def easy_resume_enrichment(
@@ -542,12 +587,12 @@ def easy_resume_enrichment(
     tracks_to_enrich_json: str,
     start_at: int,
     log_callback,
+    operation_id: str | None = None,
 ) -> str:
     """Continue POI enrichment after :class:`EnrichInterrupted` from :func:`easy_generate`."""
-    _cancel_event.clear()
     tracks_to_enrich: list[str] = json.loads(tracks_to_enrich_json)
     out_dir = pathlib.Path(output_dir)
-    with _stderr_lock:
+    with _operation(operation_id) as cancel_event:
         old = sys.stderr
         sys.stderr = _LogStream(log_callback)
         try:
@@ -556,6 +601,12 @@ def easy_resume_enrichment(
             poi_path = str(out_dir / f"{primary_stem}-{profile_id}.gpx")
             detour_results: list[dict] = []
             primary_poi_count = 0
+            prior_pairs = []
+            for completed_track in tracks_to_enrich[: int(start_at)]:
+                completed_poi = out_dir / f"{pathlib.Path(completed_track).stem}-{profile_id}.gpx"
+                if completed_poi.is_file():
+                    root = ET.parse(completed_poi).getroot()
+                    prior_pairs.append((str(completed_poi), len(root.findall(f"{{{GPX_NS}}}wpt"))))
 
             try:
                 poi_pairs = enrich_tracks_to_poi_gpx(
@@ -564,7 +615,7 @@ def easy_resume_enrichment(
                     out_dir,
                     start_at=int(start_at),
                     profiles_dir=pathlib.Path(profiles_dir),
-                    cancel_event=_cancel_event,
+                    cancel_event=cancel_event,
                     progress_interval=5.0,
                 )
             except EnrichInterrupted as exc:
@@ -580,7 +631,7 @@ def easy_resume_enrichment(
                 )
 
             poi_by_stem: dict[str, tuple[str, int]] = {}
-            for poi_path_item, n in poi_pairs:
+            for poi_path_item, n in [*prior_pairs, *poi_pairs]:
                 stem = pathlib.Path(poi_path_item).stem
                 if stem.endswith(f"-{profile_id}"):
                     stem = stem[: -len(f"-{profile_id}")]

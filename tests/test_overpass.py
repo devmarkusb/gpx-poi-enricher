@@ -7,12 +7,15 @@ No real HTTP calls are made; Overpass responses are provided as mock dicts.
 from __future__ import annotations
 
 import pytest
+import requests
+import responses
 
 from gpx_poi_enricher.overpass import (
     build_overpass_queries,
     build_overpass_query,
     element_latlon,
     extract_candidates,
+    query_overpass,
 )
 from gpx_poi_enricher.profiles import SearchProfile, load_profile
 
@@ -467,3 +470,52 @@ def test_extract_candidates_multiple_nearby(sample_track_points):
     data = {"elements": nodes}
     result = extract_candidates(data, sample_track_points, max_km=10.0, profile=profile)
     assert len(result) == 3
+
+
+@responses.activate
+def test_overpass_runtime_error_retries_instead_of_accepting_partial_results(monkeypatch):
+    monkeypatch.setattr("gpx_poi_enricher.overpass.time.sleep", lambda _: None)
+    url = "https://overpass.example/api/interpreter"
+    partial = {"elements": [_make_node()], "remark": "runtime error: Query timed out"}
+    complete = {"elements": [_make_node(node_id=2)]}
+    responses.post(url, json=partial)
+    responses.post(url, json=complete)
+    with requests.Session() as session:
+        assert query_overpass(session, "query", max_retries=2, urls=[url]) == complete
+    assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_overpass_exhausted_runtime_errors_raise(monkeypatch):
+    monkeypatch.setattr("gpx_poi_enricher.overpass.time.sleep", lambda _: None)
+    url = "https://overpass.example/api/interpreter"
+    responses.post(url, json={"elements": [], "remark": "runtime error: out of memory"})
+    with requests.Session() as session, pytest.raises(RuntimeError, match="out of memory"):
+        query_overpass(session, "query", max_retries=1, urls=[url])
+
+
+def test_overpass_strings_escape_quotes_and_regex_backslashes():
+    import json
+    import re
+
+    profile = _make_profile(
+        tags=({"key": "brand", "value": 'A "quote"'},), terms={"EN": ['A "quote"', "a.b"]}
+    )
+    tags, terms = build_overpass_queries([(0, 0)], 1, profile, "EN")
+    assert f'["brand"={json.dumps(chr(65) + " " + chr(34) + "quote" + chr(34))}]' in tags
+    pattern = "|".join(re.escape(t) for t in profile.terms_for_country("EN"))
+    assert f'["name"~{json.dumps(pattern)}, i]' in terms
+
+
+@responses.activate
+def test_zero_retries_still_makes_an_initial_request():
+    url = "https://overpass.example/api/interpreter"
+    responses.post(url, json={"elements": []})
+    with requests.Session() as session:
+        assert query_overpass(session, "query", max_retries=0, urls=[url]) == {"elements": []}
+    assert len(responses.calls) == 1
+
+
+def test_fractional_metre_radius_is_not_truncated_to_zero():
+    query = build_overpass_query([(0, 0)], 0.0005, _make_profile(terms={}), "EN")
+    assert "around:1,0,0" in query

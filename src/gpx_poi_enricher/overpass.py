@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sys
 import time
@@ -25,20 +26,26 @@ OVERPASS_URLS = [
 USER_AGENT = "gpx-poi-enricher/0.1 (https://github.com/devmarkusb/gpx-poi-enricher)"
 
 
+def _ql_string(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
 def _tag_condition(tag: dict[str, Any]) -> str:
-    key = tag["key"]
+    key = _ql_string(tag["key"])
     value = tag["value"]
-    condition = f'["{key}"]' if value == "*" else f'["{key}"="{value}"]'
+    condition = f"[{key}]" if value == "*" else f"[{key}={_ql_string(value)}]"
     extra = tag.get("and")
     if extra:
         for item in extra if isinstance(extra, list) else [extra]:
             ek, ev = item["key"], item["value"]
-            condition += f'["{ek}"]' if ev == "*" else f'["{ek}"="{ev}"]'
+            condition += (
+                f"[{_ql_string(ek)}]" if ev == "*" else f"[{_ql_string(ek)}={_ql_string(ev)}]"
+            )
     extra_not = tag.get("and_not")
     if extra_not:
         for item in extra_not if isinstance(extra_not, list) else [extra_not]:
             ek, ev = item["key"], item["value"]
-            condition += f'["{ek}"!="{ev}"]'
+            condition += f"[{_ql_string(ek)}!={_ql_string(ev)}]"
     return condition
 
 
@@ -69,7 +76,7 @@ def _collect_term_lines(
     terms = profile.terms_for_country(country_code)
     if not terms:
         return []
-    regex = "|".join(re.escape(t) for t in terms)
+    regex = _ql_string("|".join(re.escape(t) for t in terms))
     lines: list[str] = []
     for lat, lon in points:
         selectors = [
@@ -78,10 +85,10 @@ def _collect_term_lines(
             f"relation(around:{radius_m},{lat},{lon})",
         ]
         for sel in selectors:
-            lines.append(f'{sel}["name"~"{regex}", i];')
-            lines.append(f'{sel}["alt_name"~"{regex}", i];')
-            lines.append(f'{sel}["description"~"{regex}", i];')
-            lines.append(f'{sel}["operator"~"{regex}", i];')
+            lines.append(f'{sel}["name"~{regex}, i];')
+            lines.append(f'{sel}["alt_name"~{regex}, i];')
+            lines.append(f'{sel}["description"~{regex}, i];')
+            lines.append(f'{sel}["operator"~{regex}, i];')
     return lines
 
 
@@ -95,7 +102,7 @@ def _collect_tag_and_term_lines(
     terms = profile.terms_for_country(country_code)
     if not terms:
         return []
-    regex = "|".join(re.escape(t) for t in terms)
+    regex = _ql_string("|".join(re.escape(t) for t in terms))
     lines: list[str] = []
     for lat, lon in points:
         selectors = [
@@ -106,10 +113,10 @@ def _collect_tag_and_term_lines(
         for sel in selectors:
             for tag in profile.tags:
                 cond = _tag_condition(tag)
-                lines.append(f'{sel}{cond}["name"~"{regex}", i];')
-                lines.append(f'{sel}{cond}["alt_name"~"{regex}", i];')
-                lines.append(f'{sel}{cond}["description"~"{regex}", i];')
-                lines.append(f'{sel}{cond}["operator"~"{regex}", i];')
+                lines.append(f'{sel}{cond}["name"~{regex}, i];')
+                lines.append(f'{sel}{cond}["alt_name"~{regex}, i];')
+                lines.append(f'{sel}{cond}["description"~{regex}, i];')
+                lines.append(f'{sel}{cond}["operator"~{regex}, i];')
     return lines
 
 
@@ -137,7 +144,7 @@ def build_overpass_queries(
     Returns:
         One or two query strings, or raises if nothing could be built.
     """
-    radius_m = int(max_km * 1000)
+    radius_m = math.ceil(max_km * 1000)
     tag_lines = _collect_tag_lines(points, radius_m, profile)
     term_lines = _collect_term_lines(points, radius_m, profile, country_code)
 
@@ -197,10 +204,14 @@ def query_overpass(
 ) -> dict[str, Any]:
     """Execute an Overpass QL query against the public API mirrors.
 
-    Tries each URL in *urls* up to *max_retries* times with exponential
+    Tries each URL in *urls* up to *max_retries* times (at least once, even
+    when retries are disabled with zero) with exponential
     back-off. Raises the last encountered exception if all attempts fail.
     """
     endpoints = urls or OVERPASS_URLS
+    if max_retries < 0:
+        raise ValueError("max_retries must be >= 0")
+    max_retries = max(1, max_retries)
     headers = {"User-Agent": USER_AGENT}
     last_error: Exception | None = None
 
@@ -216,7 +227,7 @@ def query_overpass(
 
                 if r.ok and "json" in content_type.lower():
                     try:
-                        return r.json()
+                        data = r.json()
                     except json.JSONDecodeError as exc:
                         last_error = exc
                         wait_s = min(60, 5 * (2**attempt))
@@ -226,6 +237,15 @@ def query_overpass(
                         )
                         time.sleep(wait_s)
                         continue
+                    if not isinstance(data, dict) or not isinstance(data.get("elements"), list):
+                        last_error = RuntimeError(f"Invalid Overpass result from {base_url}")
+                    elif data.get("remark"):
+                        last_error = RuntimeError(f"Overpass error at {base_url}: {data['remark']}")
+                    else:
+                        return data
+                    print(str(last_error), file=sys.stderr)
+                    time.sleep(min(60, 5 * (2**attempt)))
+                    continue
 
                 body = r.text[:4000]
                 busy = (

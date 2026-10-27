@@ -220,3 +220,18 @@ def test_preview_route_names_from_url_geocodes_primary_endpoints():
         "start": "Paris",
         "finish": "Lyon",
     }
+
+
+def test_cli_respects_explicit_output_path(monkeypatch, tmp_path):
+    import sys
+
+    from gpx_poi_enricher import maps_to_gpx_cli as maps
+
+    output = tmp_path / "route.gpx"
+    monkeypatch.setattr(
+        sys, "argv", ["maps-to-gpx", "https://www.google.com/maps/dir/A/B/", str(output)]
+    )
+    monkeypatch.setattr(maps, "_resolve_waypoints", lambda *_: [(0, 0, "A"), (0, 1, "B")])
+    monkeypatch.setattr(maps, "_route_osrm", lambda *_a, **_kw: [(0, 0), (0, 1)])
+    maps.main()
+    assert output.is_file()

@@ -129,7 +129,11 @@ def resolve_point_input(
         candidate = f"https://{candidate}"
     host, _ = _validate_maps_url(candidate)
     if host in {"maps.app.goo.gl", "goo.gl"}:
-        candidate = _expand_short_link(candidate, session or requests.Session())
+        if session is None:
+            with requests.Session() as owned_session:
+                candidate = _expand_short_link(candidate, owned_session)
+        else:
+            candidate = _expand_short_link(candidate, session)
 
     coords = _coordinates_from_maps_url(candidate)
     if coords:

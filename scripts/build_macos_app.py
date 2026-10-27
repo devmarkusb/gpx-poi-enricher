@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import plistlib
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -88,7 +89,7 @@ def _venv_env_line() -> str:
     venv = _REPO / ".venv"
     gui_bin = venv / "bin" / _EXECUTABLE
     if gui_bin.is_file():
-        return f'GPX_POI_ENRICHER_VENV="{venv.resolve()}"\n'
+        return f"GPX_POI_ENRICHER_VENV={shlex.quote(str(venv.resolve()))}\n"
     return ""
 
 

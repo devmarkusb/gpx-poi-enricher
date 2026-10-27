@@ -192,7 +192,7 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lon2 - lon1)
     a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
-    return 2 * radius_km * math.asin(math.sqrt(a))
+    return 2 * radius_km * math.asin(math.sqrt(max(0.0, min(1.0, a))))
 
 
 def _extract_google_data_coords(url: str) -> list[tuple[float, float]]:
@@ -440,7 +440,9 @@ def _write_gpx(
     waypoints: list[tuple[float, float, str]],
     output_path: str,
     track_name: str,
-) -> None:
+    *,
+    reuse_existing: bool = False,
+) -> bool:
     gpx = gpxpy.gpx.GPX()
 
     for lat, lon, name in waypoints:
@@ -453,8 +455,22 @@ def _write_gpx(
     for lat, lon in track_points:
         segment.points.append(gpxpy.gpx.GPXTrackPoint(latitude=lat, longitude=lon))
 
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(gpx.to_xml())
+    return _save_gpx(gpx, output_path, reuse_existing=reuse_existing)
+
+
+def _save_gpx(gpx: gpxpy.gpx.GPX, output_path: str, *, reuse_existing: bool) -> bool:
+    """Atomically save current route content; return True only for an identical file."""
+    path = pathlib.Path(output_path)
+    text = gpx.to_xml()
+    if reuse_existing and path.is_file() and path.read_text(encoding="utf-8") == text:
+        return True
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return False
 
 
 def _write_gpx_segments(
@@ -462,7 +478,9 @@ def _write_gpx_segments(
     waypoints: list[tuple[float, float, str]],
     output_path: str,
     track_name: str,
-) -> None:
+    *,
+    reuse_existing: bool = False,
+) -> bool:
     """Write one GPX track with multiple ``trkseg`` elements (disjoint geometry)."""
     gpx = gpxpy.gpx.GPX()
 
@@ -482,8 +500,7 @@ def _write_gpx_segments(
     if not track.segments:
         raise ValueError("track_segments produced no non-empty segments")
 
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(gpx.to_xml())
+    return _save_gpx(gpx, output_path, reuse_existing=reuse_existing)
 
 
 def main() -> None:
@@ -576,9 +593,9 @@ def main() -> None:
     print(f"  {len(track_points)} track point(s) returned.", file=sys.stderr)
 
     # 5. Write GPX (auto-name from start/finish when still at CLI defaults)
-    track_name, output_gpx = apply_route_defaults(waypoints, args.name, args.output_gpx)
-    _write_gpx(track_points, waypoints, output_gpx, track_name)
-    print(f"Saved: {output_gpx}", file=sys.stderr)
+    track_name, _ = apply_route_defaults(waypoints, args.name, args.output_gpx)
+    _write_gpx(track_points, waypoints, args.output_gpx, track_name)
+    print(f"Saved: {args.output_gpx}", file=sys.stderr)
 
 
 if __name__ == "__main__":

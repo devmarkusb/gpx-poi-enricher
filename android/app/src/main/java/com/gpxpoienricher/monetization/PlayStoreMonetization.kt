@@ -112,6 +112,7 @@ class PlayStoreMonetization(
                     p.products.contains(id)
             }
             applyAdFree(owned)
+            purchases.forEach(::handlePurchase)
         }
     }
 

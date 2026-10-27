@@ -28,11 +28,11 @@ if [ -z "${JAVA_HOME:-}" ]; then
 fi
 export PATH="${JAVA_HOME}/bin:$PATH"
 
-# ── Python 3.12 required by Chaquopy (pip bundled with Chaquopy uses 'cgi', removed in 3.13+) ──
-if [ "$(uname -s)" = "Darwin" ] && ! command -v python3.12 &>/dev/null; then
-    echo ">>> Installing Python 3.12 (needed for Chaquopy build)..."
-    brew install python@3.12
-    brew link python@3.12
+# ── Python 3.13 matches the Chaquopy build configuration ────────────────────
+if [ "$(uname -s)" = "Darwin" ] && ! command -v python3.13 &>/dev/null; then
+    echo ">>> Installing Python 3.13 (needed for Chaquopy build)..."
+    brew install python@3.13
+    brew link python@3.13
 fi
 
 ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$HOME/dev/externlibs/Android/Sdk}"
@@ -60,10 +60,10 @@ export ANDROID_HOME="$ANDROID_SDK_ROOT"
 export PATH="$CMDLINE_TOOLS/bin:$ANDROID_HOME/platform-tools:$PATH"
 
 # ── 2. Android SDK platform + build tools ────────────────────────────────────
-if [ ! -d "$ANDROID_HOME/platforms/android-34" ]; then
-    echo ">>> Installing Android SDK platform 34 and build tools..."
+if [ ! -d "$ANDROID_HOME/platforms/android-36" ]; then
+    echo ">>> Installing Android SDK platform 36 and build tools..."
     yes | sdkmanager --licenses > /dev/null 2>&1 || true
-    sdkmanager "platforms;android-34" "build-tools;34.0.0"
+    sdkmanager "platforms;android-36" "build-tools;36.0.0"
 fi
 
 # ── 3. Gradle wrapper jar ─────────────────────────────────────────────────────

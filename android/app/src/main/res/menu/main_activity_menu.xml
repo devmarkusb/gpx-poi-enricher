@@ -11,4 +11,8 @@
         android:id="@+id/action_restore_purchases"
         android:title="@string/menu_restore_purchases"
         app:showAsAction="never" />
+    <item
+        android:id="@+id/action_privacy_options"
+        android:title="@string/menu_privacy_options"
+        app:showAsAction="never" />
 </menu>

@@ -621,7 +621,7 @@ def test_enrich_gpx_file_resume_skips_completed_batches(sample_gpx_path, tmp_pat
         patch("gpx_poi_enricher.enricher.time.sleep"),
         patch(
             "gpx_poi_enricher.enricher.query_overpass",
-            side_effect=lambda *_a, **_k: (calls.append(1) or response),
+            side_effect=lambda *_a, **_k: calls.append(1) or response,
         ),
     ):
         items = enrich_gpx_file(
@@ -636,3 +636,74 @@ def test_enrich_gpx_file_resume_skips_completed_batches(sample_gpx_path, tmp_pat
     assert len(items) >= 1
     assert not has_checkpoint(output_path)
     assert len(calls) > calls_before_resume
+
+
+def test_partial_country_failure_does_not_drop_track_samples(monkeypatch, sample_track_points):
+    from gpx_poi_enricher import enricher
+
+    profile = _make_profile(batch_size=10, sample_km=0.001, early_cancel_if_no_pois=False)
+    monkeypatch.setattr(enricher, "detect_country_segments", lambda pts, *_a, **_k: {"DE": pts[1:]})
+    queries = []
+    monkeypatch.setattr(
+        enricher, "query_overpass", lambda _s, q, **_kw: queries.append(q) or {"elements": []}
+    )
+    monkeypatch.setattr(enricher.time, "sleep", lambda _: None)
+    enricher.enrich_track(sample_track_points, profile, progress_interval=0)
+    first_lat, first_lon = sample_track_points[0]
+    assert any(f",{first_lat},{first_lon})" in query for query in queries)
+
+
+def test_pre_cancelled_search_performs_no_network(monkeypatch, sample_track_points):
+    import threading
+
+    from gpx_poi_enricher import enricher
+
+    cancelled = threading.Event()
+    cancelled.set()
+    monkeypatch.setattr(
+        enricher,
+        "detect_country_segments",
+        lambda *_a, **_k: pytest.fail("Lookup after cancellation"),
+    )
+    with pytest.raises(RuntimeError, match="cancelled"):
+        enricher.enrich_track(
+            sample_track_points, _make_profile(), cancel_event=cancelled, progress_interval=0
+        )
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_enrichment_closes_owned_http_sessions(monkeypatch, sample_track_points, failure):
+    from unittest.mock import Mock
+
+    import requests
+
+    from gpx_poi_enricher import enricher
+
+    session = requests.Session()
+    session.close = Mock(wraps=session.close)
+    monkeypatch.setattr(enricher.requests, "Session", lambda: session)
+    monkeypatch.setattr(enricher.time, "sleep", lambda _: None)
+
+    def query(*_a, **_kw):
+        if failure:
+            raise RuntimeError("network failed")
+        return {"elements": []}
+
+    monkeypatch.setattr(enricher, "query_overpass", query)
+    try:
+        if failure:
+            with pytest.raises(RuntimeError, match="network failed"):
+                enricher.enrich_track(
+                    sample_track_points,
+                    _make_profile(terms={}, early_cancel_if_no_pois=False),
+                    progress_interval=0,
+                )
+        else:
+            enricher.enrich_track(
+                sample_track_points,
+                _make_profile(terms={}, early_cancel_if_no_pois=False),
+                progress_interval=0,
+            )
+        session.close.assert_called_once()
+    finally:
+        session.close()

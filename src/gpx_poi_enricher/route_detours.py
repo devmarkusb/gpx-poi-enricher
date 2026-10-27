@@ -34,7 +34,7 @@ def _merge_far_ranges(
     merged: list[tuple[int, int]] = [ranges[0]]
     for lo, hi in ranges[1:]:
         prev_lo, prev_hi = merged[-1]
-        gap_segment = points[prev_hi:lo]
+        gap_segment = points[prev_hi - 1 : lo + 1]
         gap_len = polyline_length_km(gap_segment)
         if gap_len <= gap_merge_km:
             merged[-1] = (prev_lo, hi)

@@ -21,26 +21,31 @@ def milestone_label(k: int, n: int) -> str:
 
 def _collect_track_points(gpx):
     points = []
+    segment_starts = set()
     for track in gpx.tracks:
         for segment in track.segments:
+            if segment.points:
+                segment_starts.add(len(points))
             points.extend(segment.points)
     if len(points) < 2:
         raise ValueError("GPX must contain at least 2 track points.")
-    return points
+    return points, segment_starts
 
 
-def _cumulative_lengths(points):
+def _cumulative_lengths(points, segment_starts=()):
     cum = [0.0]
     total = 0.0
     for i in range(1, len(points)):
-        total += points[i - 1].distance_2d(points[i])
+        if i not in segment_starts:
+            total += points[i - 1].distance_2d(points[i])
         cum.append(total)
     return cum
 
 
 def _interpolate(a, b, t):
     lat = a.latitude + t * (b.latitude - a.latitude)
-    lon = a.longitude + t * (b.longitude - a.longitude)
+    lon_span = (b.longitude - a.longitude + 180) % 360 - 180
+    lon = (a.longitude + t * lon_span + 180) % 360 - 180
     if a.elevation is not None and b.elevation is not None:
         ele = a.elevation + t * (b.elevation - a.elevation)
     else:
@@ -107,11 +112,13 @@ def is_detour_track_path(track_path: str | pathlib.Path) -> bool:
 
 def add_split_waypoints(input_file: str, output_file: str, segments: int = 10) -> None:
     """Write a GPX containing only milestone waypoints (no track)."""
+    if segments < 2:
+        raise ValueError("segments must be >= 2")
     with open(input_file, encoding="utf-8") as f:
         gpx = gpxpy.parse(f)
 
-    points = _collect_track_points(gpx)
-    cum = _cumulative_lengths(points)
+    points, segment_starts = _collect_track_points(gpx)
+    cum = _cumulative_lengths(points, segment_starts)
     total = cum[-1]
 
     out_gpx = gpxpy.gpx.GPX()

@@ -63,3 +63,32 @@ def test_sidecar_has_no_track() -> None:
         g = gpxpy.parse(Path(side).read_text(encoding="utf-8"))
         assert len(g.waypoints) == 3
         assert len(g.tracks) == 0
+
+
+def test_milestones_do_not_interpolate_across_segment_gaps(tmp_path):
+    gpx = gpxpy.gpx.GPX()
+    track = gpxpy.gpx.GPXTrack()
+    gpx.tracks.append(track)
+    for start, finish in [(0.0, 0.01), (10.0, 10.01)]:
+        segment = gpxpy.gpx.GPXTrackSegment()
+        segment.points = [gpxpy.gpx.GPXTrackPoint(0, start), gpxpy.gpx.GPXTrackPoint(0, finish)]
+        track.segments.append(segment)
+    source, out = tmp_path / "gaps.gpx", tmp_path / "out.gpx"
+    source.write_text(gpx.to_xml())
+    add_split_waypoints(str(source), str(out), segments=4)
+    result = gpxpy.parse(out.read_text())
+    assert all(w.longitude <= 0.01 or w.longitude >= 10.0 for w in result.waypoints)
+
+
+def test_milestone_interpolation_across_dateline(tmp_path):
+    gpx = gpxpy.gpx.GPX()
+    track = gpxpy.gpx.GPXTrack()
+    segment = gpxpy.gpx.GPXTrackSegment()
+    segment.points = [gpxpy.gpx.GPXTrackPoint(0, 179.9), gpxpy.gpx.GPXTrackPoint(0, -179.9)]
+    track.segments.append(segment)
+    gpx.tracks.append(track)
+    source, out = tmp_path / "dateline.gpx", tmp_path / "out.gpx"
+    source.write_text(gpx.to_xml())
+    add_split_waypoints(str(source), str(out), segments=2)
+    result = gpxpy.parse(out.read_text())
+    assert abs(result.waypoints[0].longitude) == 180.0

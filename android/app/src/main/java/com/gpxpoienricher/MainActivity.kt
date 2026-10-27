@@ -48,12 +48,8 @@ class MainActivity : AppCompatActivity() {
         observeMonetization(monetization)
         observeImeForBanner(monetization)
 
-        ConsentHelper.requestConsentIfNeeded(this) {
-            adsConsentReady = true
-            if (!monetization.adFree.value) {
-                ensureBannerAd(monetization)
-                interstitialAds.onConsentReady(this)
-            }
+        ConsentHelper.requestConsentIfNeeded(this) { canRequestAds ->
+            updateAdsConsent(canRequestAds)
         }
 
         val navHostFragment = supportFragmentManager
@@ -97,6 +93,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateAdsConsent(canRequestAds: Boolean) {
+        if (isFinishing || isDestroyed) return
+        adsConsentReady = canRequestAds
+        if (!canRequestAds) {
+            tearDownBannerAd()
+            interstitialAds.release()
+        } else {
+            val monetization = (application as GpxApp).monetization
+            if (!monetization.adFree.value) {
+                (application as GpxApp).initializeAdsIfNeeded()
+                ensureBannerAd(monetization)
+                interstitialAds.onConsentReady(this)
+            }
+        }
+        invalidateOptionsMenu()
+    }
+
     /**
      * Adaptive banners must not cover publisher UI. With adjustResize + IME, the banner can
      * end up overlapping form fields — hide it while the keyboard is visible.
@@ -113,7 +126,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateBannerVisibility(monetization: PlayStoreMonetization) {
-        val show = !monetization.adFree.value && !imeVisible
+        val show = adsConsentReady && !monetization.adFree.value && !imeVisible
         binding.adBannerContainer.isGone = !show
     }
 
@@ -157,6 +170,7 @@ class MainActivity : AppCompatActivity() {
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
         val adFree = (application as GpxApp).monetization.adFree.value
         menu.findItem(R.id.action_remove_ads)?.isVisible = !adFree
+        menu.findItem(R.id.action_privacy_options)?.isVisible = ConsentHelper.privacyOptionsRequired(this)
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -172,6 +186,10 @@ class MainActivity : AppCompatActivity() {
                 Snackbar.make(binding.root, R.string.msg_restore_purchases_done, Snackbar.LENGTH_SHORT).show()
                 return true
             }
+            R.id.action_privacy_options -> {
+                ConsentHelper.showPrivacyOptions(this) { updateAdsConsent(it) }
+                return true
+            }
         }
         return super.onOptionsItemSelected(item)
     }
@@ -183,6 +201,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        (application as GpxApp).monetization.restorePurchases()
         bannerAdView?.resume()
     }
 

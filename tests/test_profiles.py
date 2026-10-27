@@ -409,3 +409,56 @@ def test_save_profile_writes_user_file(tmp_path):
     assert path.parent == root / "user"
     assert path.exists()
     assert load_profile("alpha", profiles_dir=root).description == "saved here"
+
+
+def test_profile_without_id_uses_filename(tmp_path):
+    (tmp_path / "museum.yaml").write_text("tags: [{key: tourism, value: museum}]\n")
+    assert load_all_profiles(tmp_path)["museum"].id == "museum"
+    assert load_profile("museum", tmp_path).id == "museum"
+
+
+def test_profile_selection_uses_yaml_id_and_user_override(tmp_path):
+    (tmp_path / "builtin").mkdir()
+    (tmp_path / "user").mkdir()
+    (tmp_path / "builtin" / "museum.yaml").write_text(
+        yaml.safe_dump(_minimal_profile_dict("museum", "builtin"))
+    )
+    (tmp_path / "user" / "custom.yaml").write_text(
+        yaml.safe_dump(_minimal_profile_dict("museum", "user override"))
+    )
+    assert load_all_profiles(tmp_path)["museum"].description == "user override"
+    assert load_profile("museum", tmp_path).description == "user override"
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("max_km", 0),
+        ("max_km", float("nan")),
+        ("sample_km", -1),
+        ("sample_km", float("inf")),
+        ("batch_size", 0),
+        ("retries", -1),
+    ],
+)
+def test_profile_rejects_invalid_search_defaults(key, value):
+    from gpx_poi_enricher.profiles import profile_from_mapping
+
+    data = _minimal_profile_dict("invalid", "Invalid")
+    data["defaults"][key] = value
+    with pytest.raises(ValueError, match=key):
+        profile_from_mapping(data)
+
+
+def test_saving_profile_overrides_existing_alias_and_delete_removes_it(tmp_path):
+    import dataclasses
+
+    from gpx_poi_enricher.profiles import delete_user_profile
+
+    original = profile_from_yaml_text(yaml.safe_dump(_minimal_profile_dict("museum", "old")))
+    (tmp_path / "zzz_alias.yaml").write_text(dump_profile_yaml(original))
+    save_profile(dataclasses.replace(original, description="new"), tmp_path)
+    assert load_all_profiles(tmp_path)["museum"].description == "new"
+    assert load_profile("museum", tmp_path).description == "new"
+    assert delete_user_profile("museum", tmp_path)
+    assert load_all_profiles(tmp_path) == {}

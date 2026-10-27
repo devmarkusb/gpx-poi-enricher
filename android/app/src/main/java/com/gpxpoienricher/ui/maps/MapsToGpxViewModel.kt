@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
 import java.io.File
 
 class MapsToGpxViewModel(app: Application) : AndroidViewModel(app) {
@@ -71,6 +72,7 @@ class MapsToGpxViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun run(url: String, mode: String, trackName: String) {
+        if (job?.isCompleted == false) return
         if (url.isBlank()) { _snackbar.value = "Enter a Google Maps URL"; return }
         val outputUri = _outputUri.value ?: run { _snackbar.value = "Select an output file"; return }
 
@@ -92,7 +94,10 @@ class MapsToGpxViewModel(app: Application) : AndroidViewModel(app) {
                             url.trim(), outTmp.absolutePath, mode, trackName,
                             LogCallback(::log),
                         ).toString()
-                        ctx.contentResolver.openOutputStream(outputUri)!!.use { outTmp.inputStream().copyTo(it) }
+                        ensureActive()
+                        ctx.contentResolver.openOutputStream(outputUri, "wt")!!.use { output ->
+                            outTmp.inputStream().use { it.copyTo(output) }
+                        }
                         val obj = org.json.JSONObject(resultJson)
                         if (isDefaultTrackName(trackName)) {
                             _appliedTrackName.postValue(obj.getString("track_name"))

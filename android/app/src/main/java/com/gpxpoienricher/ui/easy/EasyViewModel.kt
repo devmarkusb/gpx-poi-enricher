@@ -18,6 +18,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
 import org.json.JSONArray
 
 class EasyViewModel(app: Application) : AndroidViewModel(app) {
@@ -66,6 +67,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
 
     private var job: Job? = null
     private var interrupted: InterruptedState? = null
+    private var operationId: String? = null
 
     init {
         reloadProfiles()
@@ -94,6 +96,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
         pointMode: Boolean = false,
         pointRadius: String = "",
     ) {
+        if (job?.isActive == true) return
         if (interrupted != null) {
             resume(legacyStorageGranted)
             return
@@ -105,7 +108,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
             null
         } else {
             val parsed = pointRadius.trim().toDoubleOrNull()
-            if (parsed == null || parsed <= 0.0 || parsed > 999.0) {
+            if (parsed == null || !parsed.isFinite() || parsed <= 0.0 || parsed > 999.0) {
                 _snackbar.value = "Radius must be a number like 5 or 2.5 (blank = profile radius)"
                 return
             }
@@ -114,7 +117,8 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
         val profile = _profiles.value?.getOrNull(profileIndex)
             ?: run { _snackbar.value = "No profile selected"; return }
 
-        job?.cancel()
+        val runId = UUID.randomUUID().toString()
+        operationId = runId
         job = viewModelScope.launch {
             _isRunning.value = true
             _result.value = null
@@ -138,6 +142,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                         "easy_generate_point", url, profile.id,
                         GpxApp.extractProfiles().absolutePath, outputDir.absolutePath, LogCallback(::log),
                         maxKm,
+                        runId,
                     ).toString() else bridge.callAttr(
                         "easy_generate",
                         url,
@@ -147,6 +152,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                         outputDir.absolutePath,
                         LogCallback(::log),
                         parts,
+                        runId,
                     ).toString()
 
                     handleEasyJson(
@@ -170,6 +176,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                 log("ERROR: ${e.message}")
                 _snackbar.postValue("Error: ${e.message}")
             } finally {
+                operationId = null
                 _isRunning.value = false
             }
         }
@@ -177,8 +184,10 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun resume(legacyStorageGranted: Boolean) {
         val state = interrupted ?: return
+        if (job?.isActive == true) return
 
-        job?.cancel()
+        val runId = UUID.randomUUID().toString()
+        operationId = runId
         job = viewModelScope.launch {
             _isRunning.value = true
             val logs = _logLines.value ?: mutableListOf()
@@ -202,6 +211,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                         tracksJson,
                         state.trackIndex,
                         LogCallback(::log),
+                        runId,
                     ).toString()
 
                     handleEasyJson(
@@ -226,6 +236,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
                 log("ERROR: ${e.message}")
                 _snackbar.postValue("Error: ${e.message}")
             } finally {
+                operationId = null
                 _isRunning.value = false
             }
         }
@@ -388,10 +399,17 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun cancel() {
+        val id = operationId ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { Python.getInstance().getModule("gpx_bridge").callAttr("cancel") }
+            runCatching { Python.getInstance().getModule("gpx_bridge").callAttr("cancel", id) }
         }
-        job?.cancel()
+    }
+
+    override fun onCleared() {
+        operationId?.let { id ->
+            runCatching { Python.getInstance().getModule("gpx_bridge").callAttr("cancel", id) }
+        }
+        super.onCleared()
     }
 
     fun clearSnackbar() { _snackbar.value = null }

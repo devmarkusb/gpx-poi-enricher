@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
+import math
 import os
 import pathlib
 import sys
@@ -11,11 +14,18 @@ import time
 import xml.etree.ElementTree as ET
 from collections import OrderedDict
 from collections.abc import Callable
+from functools import wraps
 from typing import Any
 
 import requests
 
-from .enrich_checkpoint import clear_checkpoint, has_checkpoint, read_checkpoint, write_checkpoint
+from .enrich_checkpoint import (
+    clear_checkpoint,
+    has_checkpoint,
+    read_checkpoint,
+    read_checkpoint_fingerprint,
+    write_checkpoint,
+)
 from .geocoding import detect_country_segments
 from .gpx_utils import (
     GPX_NS,
@@ -28,8 +38,19 @@ from .gpx_utils import (
 from .location import resolve_point_input
 from .naming import point_output_stem
 from .overpass import build_overpass_queries, extract_candidates, query_overpass
-from .profiles import SearchProfile, load_profile
+from .profiles import SearchProfile, load_profile, profile_to_mapping, validate_search_defaults
 from .progress import ProgressHeartbeat
+
+
+def _with_http_session(operation):
+    @wraps(operation)
+    def managed(*args, **kwargs):
+        if kwargs.get("http_session") is not None:
+            return operation(*args, **kwargs)
+        with requests.Session() as session:
+            return operation(*args, **{**kwargs, "http_session": session})
+
+    return managed
 
 
 class EnrichInterrupted(Exception):
@@ -72,8 +93,11 @@ def _write_waypoints_gpx_snapshot(
     tree = ET.ElementTree(root)
     outp = pathlib.Path(output_path)
     tmp = outp.with_name(outp.name + ".tmp")
-    tree.write(str(tmp), encoding="utf-8", xml_declaration=True)
-    os.replace(tmp, outp)
+    try:
+        tree.write(str(tmp), encoding="utf-8", xml_declaration=True)
+        os.replace(tmp, outp)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def _chunked(seq: list, size: int):
@@ -99,13 +123,14 @@ def _load_candidates_from_checkpoint_gpx(
     track_points: list[tuple[float, float]],
     profile: SearchProfile,
     max_km: float,
+    original_waypoint_count: int = 0,
 ) -> OrderedDict[tuple[float, float], dict[str, Any]]:
     tree = ET.parse(str(checkpoint_path))
     root = tree.getroot()
     wpt_tag = f"{{{GPX_NS}}}wpt"
     name_tag = f"{{{GPX_NS}}}name"
     candidates: OrderedDict[tuple[float, float], dict[str, Any]] = OrderedDict()
-    for wpt in root.findall(f".//{wpt_tag}"):
+    for wpt in root.findall(wpt_tag)[original_waypoint_count:]:
         lat = float(wpt.attrib["lat"])
         lon = float(wpt.attrib["lon"])
         name_el = wpt.find(name_tag)
@@ -130,6 +155,7 @@ def _load_candidates_from_checkpoint_gpx(
     return candidates
 
 
+@_with_http_session
 def enrich_track(
     track_points: list[tuple[float, float]],
     profile: SearchProfile,
@@ -148,6 +174,7 @@ def enrich_track(
     resume_after_batch: int = 0,
     initial_candidates: OrderedDict[tuple[float, float], dict[str, Any]] | None = None,
     on_batch_completed: Callable[[int, int], None] | None = None,
+    on_batch_plan: Callable[[str], None] | None = None,
     _target_label: str = "track",
 ) -> list[dict[str, Any]]:
     """Enrich a list of track points with nearby POIs from OpenStreetMap.
@@ -176,8 +203,21 @@ def enrich_track(
         Sorted list of POI dicts (keys: lat, lon, name, kind, distance_km, tags).
     """
     _max_km = max_km if max_km is not None else profile.max_km
+    if cancel_event is not None and cancel_event.is_set():
+        raise RuntimeError("Operation cancelled by user.")
+    if any(not (-90 <= lat <= 90 and -180 <= lon <= 180) for lat, lon in track_points):
+        raise ValueError("Invalid track coordinates: latitude/longitude outside valid ranges.")
     _sample_km = sample_km if sample_km is not None else profile.sample_km
     _batch_size = batch_size if batch_size is not None else profile.batch_size
+    for key, value in (
+        ("country_sample_km", country_sample_km),
+        ("progress_interval", progress_interval),
+    ):
+        if not math.isfinite(value) or value < 0:
+            raise ValueError(f"{key} must be finite and >= 0.")
+    validate_search_defaults(
+        max_km=_max_km, sample_km=_sample_km, batch_size=_batch_size, retries=profile.retries
+    )
     _early_cancel = (
         profile.early_cancel_if_no_pois
         if early_cancel_if_no_pois is None
@@ -239,10 +279,28 @@ def enrich_track(
 
     if not country_segments:
         country_segments = OrderedDict([("EN", sampled)])
+    else:
+        covered = {point for points in country_segments.values() for point in points}
+        missing = [point for point in sampled if point not in covered]
+        if missing:
+            country_segments.setdefault("EN", []).extend(missing)
 
     total_batches = sum(
         (len(pts) + _batch_size - 1) // _batch_size for pts in country_segments.values()
     )
+    if on_batch_plan is not None:
+        # Batch ordinals are only meaningful for this exact input, settings and
+        # country grouping. Refuse to skip work if any of them changed.
+        run = {
+            "track_points": track_points,
+            "profile": profile_to_mapping(profile),
+            "max_km": float(_max_km),
+            "sample_km": float(_sample_km),
+            "batch_size": _batch_size,
+            "country_sample_km": float(country_sample_km),
+            "country_segments": list(country_segments.items()),
+        }
+        on_batch_plan(hashlib.sha256(json.dumps(run, sort_keys=True).encode()).hexdigest())
     if resume_after_batch > 0:
         n_loaded = len(initial_candidates) if initial_candidates else 0
         print(
@@ -261,6 +319,8 @@ def enrich_track(
         nonlocal batch_num
         for cc, pts in country_segments.items():
             for batch in _chunked(pts, _batch_size):
+                if cancel_event is not None and cancel_event.is_set():
+                    raise RuntimeError("Operation cancelled by user.")
                 batch_num += 1
                 if batch_num <= resume_after_batch:
                     continue
@@ -347,10 +407,13 @@ def _write_point_gpx(
     add_waypoints_to_gpx(root, items, symbol=profile.symbol, type_label=profile.description)
     outp = pathlib.Path(output_path)
     outp.parent.mkdir(parents=True, exist_ok=True)
-    ET.ElementTree(root).write(str(outp), encoding="utf-8", xml_declaration=True)
+    _write_waypoints_gpx_snapshot(
+        root, [], outp, symbol=profile.symbol, type_label=profile.description
+    )
     return outp
 
 
+@_with_http_session
 def enrich_point_file(
     location: str,
     output_path: str | pathlib.Path,
@@ -389,7 +452,7 @@ def enrich_point_file_named(
     own_session = kwargs.get("http_session") is None
     try:
         point = resolve_point_input(location, session=session)
-        items = enrich_point(point, profile, **kwargs)
+        items = enrich_point(point, profile, **{**kwargs, "http_session": session})
         stem, source = point_output_stem(location, items, point=point, session=session)
         out_path = pathlib.Path(output_dir) / f"{stem}-{profile_id}.gpx"
         outp = _write_point_gpx(items, profile, out_path)
@@ -434,7 +497,7 @@ def enrich_gpx_file(
         The list of POI dicts written as waypoints.
     """
     profile = load_profile(profile_id, profiles_dir)
-    tree, root, track_points = parse_gpx_trackpoints(str(input_path))
+    _tree, root, track_points = parse_gpx_trackpoints(str(input_path))
     outp = pathlib.Path(output_path)
     if checkpoint_each_batch:
         outp.parent.mkdir(parents=True, exist_ok=True)
@@ -442,12 +505,20 @@ def enrich_gpx_file(
     _max_km = float(kwargs.get("max_km") if kwargs.get("max_km") is not None else profile.max_km)
     resume_after_batch = 0
     initial_candidates: OrderedDict[tuple[float, float], dict[str, Any]] | None = None
+    saved_fingerprint = None
+    run_fingerprint = None
     if resume:
         resume_after_batch, _total = read_checkpoint(outp)
-        if outp.is_file():
-            initial_candidates = _load_candidates_from_checkpoint_gpx(
-                outp, track_points, profile, _max_km
-            )
+        if not outp.is_file():
+            raise FileNotFoundError(f"Missing GPX checkpoint snapshot: {outp}")
+        saved_fingerprint = read_checkpoint_fingerprint(outp)
+        initial_candidates = _load_candidates_from_checkpoint_gpx(
+            outp,
+            track_points,
+            profile,
+            _max_km,
+            original_waypoint_count=len(root.findall(f"{{{GPX_NS}}}wpt")),
+        )
     elif checkpoint_each_batch:
         clear_checkpoint(outp)
 
@@ -462,7 +533,24 @@ def enrich_gpx_file(
 
     def _on_batch_completed(batch_num: int, total_batches: int) -> None:
         if checkpoint_each_batch:
-            write_checkpoint(outp, last_completed_batch=batch_num, total_batches=total_batches)
+            write_checkpoint(
+                outp,
+                last_completed_batch=batch_num,
+                total_batches=total_batches,
+                run_fingerprint=run_fingerprint,
+            )
+
+    def _on_batch_plan(fingerprint: str) -> None:
+        nonlocal run_fingerprint
+        fingerprint = hashlib.sha256(
+            ET.tostring(root, encoding="utf-8") + fingerprint.encode()
+        ).hexdigest()
+        if resume and saved_fingerprint != fingerprint:
+            raise ValueError(
+                "Checkpoint does not match this search: input, profile, settings or country "
+                "grouping changed (or the checkpoint predates validation). Restart the search."
+            )
+        run_fingerprint = fingerprint
 
     try:
         items = enrich_track(
@@ -473,7 +561,11 @@ def enrich_gpx_file(
             resume_after_batch=resume_after_batch,
             initial_candidates=initial_candidates,
             on_batch_completed=_on_batch_completed if checkpoint_each_batch else None,
+            on_batch_plan=_on_batch_plan if checkpoint_each_batch or resume else None,
             **kwargs,
+        )
+        _write_waypoints_gpx_snapshot(
+            root, items, outp, symbol=profile.symbol, type_label=profile.description
         )
     except Exception as exc:
         if checkpoint_each_batch and has_checkpoint(outp):
@@ -489,9 +581,6 @@ def enrich_gpx_file(
     clear_checkpoint(outp)
 
     print(f"\nAdding {len(items)} waypoints.", file=sys.stderr)
-    add_waypoints_to_gpx(root, items, symbol=profile.symbol, type_label=profile.description)
-    remove_tracks_and_routes(root)
-    tree.write(str(output_path), encoding="utf-8", xml_declaration=True)
     print(f"Wrote: {output_path}", file=sys.stderr)
 
     return items
@@ -514,6 +603,8 @@ def enrich_tracks_to_poi_gpx(
          :class:`EnrichInterrupted` when a track fails but a batch checkpoint exists.
     """
     out_dir = pathlib.Path(output_dir)
+    if not tracks_to_enrich:
+        return []
     primary_stem = pathlib.Path(tracks_to_enrich[0]).stem
     results: list[tuple[str, int]] = []
 

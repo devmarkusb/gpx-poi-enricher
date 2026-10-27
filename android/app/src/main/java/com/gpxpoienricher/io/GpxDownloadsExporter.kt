@@ -10,6 +10,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import java.io.File
 import java.io.FileInputStream
+import androidx.annotation.RequiresApi
 
 /**
  * Copies GPX outputs into a user-visible folder under public Downloads
@@ -72,6 +73,7 @@ object GpxDownloadsExporter {
         return displayPath(dest.name)
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun exportViaMediaStore(
         resolver: ContentResolver,
         source: File,
@@ -113,6 +115,7 @@ object GpxDownloadsExporter {
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun pickUniqueDisplayName(resolver: ContentResolver, preferredName: String): String {
         if (findExistingEntry(resolver, preferredName) == null) return preferredName
         val stem = preferredName.substringBeforeLast('.', preferredName)
@@ -124,14 +127,15 @@ object GpxDownloadsExporter {
         return "${stem}_${System.currentTimeMillis()}$ext"
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun findExistingEntry(resolver: ContentResolver, displayName: String): Pair<Uri, String>? {
         val projection = arrayOf(
             MediaStore.MediaColumns._ID,
             MediaStore.MediaColumns.DISPLAY_NAME,
         )
         val selection =
-            "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
-        val args = arrayOf(displayName, "${downloadsRelativePath.trimEnd('/')}%")
+            "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?"
+        val args = arrayOf(displayName, downloadsRelativePath)
         resolver.query(
             MediaStore.Downloads.EXTERNAL_CONTENT_URI,
             projection,

@@ -172,7 +172,7 @@ def main() -> None:
         "max_km": args.max_km,
         "sample_km": args.sample_km,
         "batch_size": args.batch_size,
-        "country_sample_km": args.country_sample_km or 40.0,
+        "country_sample_km": args.country_sample_km if args.country_sample_km is not None else 40.0,
         "progress_interval": args.progress_interval,
         "verbose": args.verbose,
     }
