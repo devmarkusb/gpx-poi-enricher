@@ -6,6 +6,8 @@ import math
 import xml.etree.ElementTree as ET
 from decimal import Decimal
 
+from .poi_identity import OSM_URL_PREFIX, osm_identity
+
 GPX_NS = "http://www.topografix.com/GPX/1/1"
 _NS = {"gpx": GPX_NS}
 ET.register_namespace("", GPX_NS)
@@ -195,7 +197,8 @@ def add_waypoints_to_gpx(
 
     Args:
         root: The GPX ``<gpx>`` element to append ``<wpt>`` children to.
-        items: List of dicts with keys ``lat``, ``lon``, ``name``, ``kind``, ``distance_km``.
+        items: Dicts with ``lat``, ``lon``, ``name``, ``kind``, ``distance_km``, and optional
+            ``osm_type``/``osm_id`` persisted as an OSM link for checkpoint recovery.
         symbol: Garmin/GPX symbol name (e.g. ``"Campground"``).
         type_label: Human-readable type string written to ``<type>``.
     """
@@ -209,6 +212,11 @@ def add_waypoints_to_gpx(
         ET.SubElement(
             wpt, f"{{{GPX_NS}}}desc"
         ).text = f"approx {item['distance_km']:.1f} km from track"
+        identity = osm_identity(item.get("osm_type"), item.get("osm_id"))
+        if identity is not None:
+            ET.SubElement(
+                wpt, f"{{{GPX_NS}}}link", href=f"{OSM_URL_PREFIX}{identity[0]}/{identity[1]}"
+            )
         ET.SubElement(wpt, f"{{{GPX_NS}}}sym").text = symbol
         ET.SubElement(wpt, f"{{{GPX_NS}}}type").text = type_label
         # GPX requires waypoints before routes, tracks and root extensions.

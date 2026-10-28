@@ -304,6 +304,57 @@ def test_profile_yaml_changes_survive_switch_to_form(gui, profiles_dir):
     assert dialog._read_from_form() == edited
 
 
+@pytest.fixture
+def custom_profile_manager(gui, monkeypatch, tmp_path, profiles_dir):
+    from gpx_poi_enricher import gui_profiles
+    from gpx_poi_enricher.profiles import load_profile, save_profile
+
+    custom = tmp_path / "custom"
+    custom.mkdir()
+    monkeypatch.setenv("GPX_POI_PROFILES_DIR", str(custom))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "normal-config"))
+    save_profile(load_profile("camping", profiles_dir), custom)
+    monkeypatch.setattr(
+        gui_profiles.QMessageBox,
+        "question",
+        lambda *_a, **_k: gui_profiles.QMessageBox.StandardButton.Yes,
+    )
+    panel = gui_profiles.ProfilesManagerTab()
+    yield gui_profiles, panel, custom
+    panel.close()
+
+
+def test_profile_manager_uses_and_deletes_from_configured_folder(
+    custom_profile_manager, monkeypatch
+):
+    module, panel, custom = custom_profile_manager
+    opened = []
+    monkeypatch.setattr(
+        module.QDesktopServices, "openUrl", lambda url: opened.append(url.toLocalFile())
+    )
+    panel._open_user_dir()
+    assert opened == [str(custom)]
+    panel._delete()
+    assert not (custom / "camping.yaml").exists()
+    assert panel._table.rowCount() == 0
+
+
+def test_profile_manager_reports_delete_permission_errors(custom_profile_manager, monkeypatch):
+    module, panel, custom = custom_profile_manager
+    warnings = []
+
+    def denied(*_a, **_k):
+        raise PermissionError("Profile directory is read-only")
+
+    monkeypatch.setattr(module, "delete_user_profile", denied)
+    monkeypatch.setattr(
+        module.QMessageBox, "warning", lambda _p, title, message: warnings.append((title, message))
+    )
+    panel._delete()
+    assert warnings == [("Could not delete", "Profile directory is read-only")]
+    assert (custom / "camping.yaml").is_file()
+
+
 def test_closing_window_keeps_running_worker_alive(gui, monkeypatch, tmp_path):
     from types import SimpleNamespace
 

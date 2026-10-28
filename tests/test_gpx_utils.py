@@ -420,3 +420,18 @@ def test_waypoint_coordinates_round_trip_without_precision_loss(lat, lon):
     assert float(waypoint.attrib["lon"]) == lon
     assert "e" not in waypoint.attrib["lat"].lower()
     assert "e" not in waypoint.attrib["lon"].lower()
+
+
+def test_waypoint_osm_link_follows_gpx_schema_order():
+    root = ET.Element(f"{{{GPX_NS}}}gpx")
+    item = {**_make_poi_items(1)[0], "osm_type": "way", "osm_id": 123}
+    add_waypoints_to_gpx(root, [item], symbol="Pin", type_label="POI")
+    waypoint = root[0]
+    assert [child.tag.rsplit("}", 1)[-1] for child in waypoint] == [
+        "name",
+        "desc",
+        "link",
+        "sym",
+        "type",
+    ]
+    assert waypoint.find(f"{{{GPX_NS}}}link").get("href") == "https://www.openstreetmap.org/way/123"

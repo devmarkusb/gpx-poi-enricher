@@ -38,6 +38,7 @@ from .gpx_utils import (
 from .location import resolve_point_input
 from .naming import point_output_stem
 from .overpass import build_overpass_queries, extract_candidates, query_overpass
+from .poi_identity import CandidateKey, candidate_key, osm_identity, osm_identity_from_url
 from .profiles import SearchProfile, load_profile, profile_to_mapping, validate_search_defaults
 from .progress import ProgressHeartbeat
 
@@ -73,7 +74,7 @@ class EnrichInterrupted(Exception):
 
 
 def _sorted_poi_items(
-    candidates: OrderedDict[tuple[float, float], dict[str, Any]],
+    candidates: OrderedDict[CandidateKey, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     return sorted(candidates.values(), key=lambda x: (x["distance_km"], x["name"].lower()))
 
@@ -106,14 +107,15 @@ def _chunked(seq: list, size: int):
 
 
 def _dedupe_overpass_elements(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Keep first occurrence per (type, id); preserves stable order."""
+    """Keep first per OSM type+ID; let candidate filtering handle anonymous elements."""
     seen: set[tuple[Any, Any]] = set()
     out: list[dict[str, Any]] = []
     for el in elements:
-        key = (el.get("type"), el.get("id"))
-        if key in seen:
+        key = osm_identity(el.get("type"), el.get("id"))
+        if key is not None and key in seen:
             continue
-        seen.add(key)
+        if key is not None:
+            seen.add(key)
         out.append(el)
     return out
 
@@ -124,12 +126,12 @@ def _load_candidates_from_checkpoint_gpx(
     profile: SearchProfile,
     max_km: float,
     original_waypoint_count: int = 0,
-) -> OrderedDict[tuple[float, float], dict[str, Any]]:
+) -> OrderedDict[CandidateKey, dict[str, Any]]:
     tree = ET.parse(str(checkpoint_path))
     root = tree.getroot()
     wpt_tag = f"{{{GPX_NS}}}wpt"
     name_tag = f"{{{GPX_NS}}}name"
-    candidates: OrderedDict[tuple[float, float], dict[str, Any]] = OrderedDict()
+    candidates: OrderedDict[CandidateKey, dict[str, Any]] = OrderedDict()
     for wpt in root.findall(wpt_tag)[original_waypoint_count:]:
         lat = float(wpt.attrib["lat"])
         lon = float(wpt.attrib["lon"])
@@ -142,16 +144,20 @@ def _load_candidates_from_checkpoint_gpx(
         distance_km = min_distance_to_track_km(lat, lon, track_points)
         if distance_km > max_km:
             continue
-        key = (round(lat, 5), round(lon, 5))
-        if key not in candidates:
-            candidates[key] = {
-                "lat": lat,
-                "lon": lon,
-                "name": name,
-                "kind": profile.description,
-                "distance_km": distance_km,
-                "tags": {},
-            }
+        candidate = {
+            "lat": lat,
+            "lon": lon,
+            "name": name,
+            "kind": profile.description,
+            "distance_km": distance_km,
+            "tags": {},
+        }
+        for link in wpt.findall(f"{{{GPX_NS}}}link"):
+            identity = osm_identity_from_url(link.get("href", ""))
+            if identity is not None:
+                candidate.update(osm_type=identity[0], osm_id=identity[1])
+                break
+        candidates.setdefault(candidate_key(candidate), candidate)
     return candidates
 
 
@@ -172,7 +178,7 @@ def enrich_track(
     early_cancel_after_batches: int | None = None,
     on_batch_checkpoint: Callable[[list[dict[str, Any]]], None] | None = None,
     resume_after_batch: int = 0,
-    initial_candidates: OrderedDict[tuple[float, float], dict[str, Any]] | None = None,
+    initial_candidates: OrderedDict[CandidateKey, dict[str, Any]] | None = None,
     on_batch_completed: Callable[[int, int], None] | None = None,
     on_batch_plan: Callable[[str], None] | None = None,
     _target_label: str = "track",
@@ -200,7 +206,8 @@ def enrich_track(
         on_batch_completed: Called after each successful batch with ``(batch_num, total_batches)``.
 
     Returns:
-        Sorted list of POI dicts (keys: lat, lon, name, kind, distance_km, tags).
+        Sorted POI dicts (lat, lon, name, kind, distance_km, tags, and osm_type/osm_id
+        when supplied by Overpass).
     """
     _max_km = max_km if max_km is not None else profile.max_km
     if cancel_event is not None and cancel_event.is_set():
@@ -310,9 +317,9 @@ def enrich_track(
         )
 
     batch_num = 0
-    all_candidates: OrderedDict[tuple[float, float], dict[str, Any]] = (
-        OrderedDict(initial_candidates) if initial_candidates else OrderedDict()
-    )
+    all_candidates: OrderedDict[CandidateKey, dict[str, Any]] = OrderedDict()
+    for item in (initial_candidates or {}).values():
+        all_candidates.setdefault(candidate_key(item), item)
     progress_state["pois_found"] = len(all_candidates)
 
     def _run_overpass_batches() -> None:
@@ -341,9 +348,7 @@ def enrich_track(
                     merged_elements.extend(data.get("elements") or [])
                 data = {"elements": _dedupe_overpass_elements(merged_elements)}
                 for item in extract_candidates(data, track_points, _max_km, profile):
-                    key = (round(item["lat"], 5), round(item["lon"], 5))
-                    if key not in all_candidates:
-                        all_candidates[key] = item
+                    all_candidates.setdefault(candidate_key(item), item)
 
                 progress_state["pois_found"] = len(all_candidates)
 
@@ -504,7 +509,7 @@ def enrich_gpx_file(
 
     _max_km = float(kwargs.get("max_km") if kwargs.get("max_km") is not None else profile.max_km)
     resume_after_batch = 0
-    initial_candidates: OrderedDict[tuple[float, float], dict[str, Any]] | None = None
+    initial_candidates: OrderedDict[CandidateKey, dict[str, Any]] | None = None
     saved_fingerprint = None
     run_fingerprint = None
     if resume:

@@ -38,7 +38,6 @@ from PyQt6.QtWidgets import (
 from .poi_catalog import catalog_entry_by_id, load_catalog, save_catalog_entry
 from .profiles import (
     SearchProfile,
-    default_user_profiles_dir,
     delete_user_profile,
     dump_profile_yaml,
     load_all_profiles_with_sources,
@@ -47,6 +46,7 @@ from .profiles import (
     profile_from_yaml_text,
     save_profile,
     template_profile,
+    user_profiles_write_dir,
 )
 
 
@@ -651,7 +651,11 @@ class ProfilesManagerTab(QWidget):
             != QMessageBox.StandardButton.Yes
         ):
             return
-        delete_user_profile(pid, None)
+        try:
+            delete_user_profile(pid, None)
+        except Exception as exc:
+            QMessageBox.warning(self, "Could not delete", str(exc))
+            return
         self._after_save()
 
     def _import(self) -> None:
@@ -702,8 +706,11 @@ class ProfilesManagerTab(QWidget):
             QMessageBox.warning(self, "Export failed", str(exc))
 
     def _open_user_dir(self) -> None:
-        d = default_user_profiles_dir()
-        d.mkdir(parents=True, exist_ok=True)
+        try:
+            d = user_profiles_write_dir()
+        except Exception as exc:
+            QMessageBox.warning(self, "Could not open folder", str(exc))
+            return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(d)))
 
     def _after_save(self) -> None:

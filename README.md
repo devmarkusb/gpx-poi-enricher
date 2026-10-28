@@ -130,7 +130,10 @@ or a point/Maps link. Long-running work is off the UI thread.
 
 ## Environment variables
 
-**`GPX_POI_PROFILES_DIR`** — existing directory of `*.yaml` **replaces** built-in profiles.
+**`GPX_POI_PROFILES_DIR`** — existing directory of `*.yaml` / `*.yml` **replaces** both built-in
+and normal user profile locations. Desktop edits, imports, catalog additions, and deletions use
+this directory too. It must be writable for those operations; failures are shown instead of saving
+in an invisible fallback directory. An explicit programmatic `profiles_dir` takes precedence.
 
 **`OSRM_BASE_URL`** — OSRM root ending in `/route/v1` for `maps-to-gpx` (override with
 `--osrm-base-url`).
@@ -158,13 +161,13 @@ maps-to-gpx "https://www.google.com/maps/dir/A/B/" route.gpx \
 
 ## Command: gpx-split-waypoints
 
-Track → **`segments − 1`** evenly spaced waypoints (`Split 1`, …); description holds track position
-(e.g. `10.0% of track length`). Waypoints only — companion file, not the original track.
-`segments >= 2`.
+Track → **`segments`** evenly spaced milestones named `1/N`, …, `N/N`, including the finish.
+Descriptions include the percentage along the track. Waypoints only — companion file, not the
+original track. `segments >= 2`.
 
 ```bash
-gpx-split-waypoints route.gpx route-split.gpx       # 10 segments → 9 waypoints (default)
-gpx-split-waypoints route.gpx route-split.gpx 5   # 5 segments → 4 waypoints
+gpx-split-waypoints route.gpx route-split.gpx     # 10 milestones, 1/10 through 10/10 (default)
+gpx-split-waypoints route.gpx route-split.gpx 5   # 5 milestones, 1/5 through 5/5
 ```
 
 ---
@@ -186,6 +189,12 @@ place link. Run `gpx-poi-enricher --help` for all flags.
 - `--verbose` — verbose Overpass error bodies (track searches only)
 - `--list-profiles` — list profiles and defaults, then exit
 - `--quick` — sparse track defaults and a 1 km radius (including point searches), unless overridden
+
+Track search is an approximation: samples are existing GPX vertices chosen after each sampling
+interval, with no interpolated points. Search circles can leave gaps; for example, a 10 km interval
+with a 2 km radius does not cover the whole track. Final filtering measures distance to the nearest
+original track vertex, rather than the continuous line between vertices. Smaller sampling intervals
+increase coverage and API requests; `--quick` deliberately uses sparse defaults.
 
 ```bash
 gpx-poi-enricher route.gpx camping.gpx --profile camping
@@ -216,8 +225,8 @@ From `profiles/`. `gpx-poi-enricher --list-profiles` shows `sample_km`, `batch_s
 | `restaurant` | Restaurant | 2.0 |
 | `kids_activities` | Children's Activities of All Kinds | 15.0 |
 
-**`kids_activities`** matches mainly via **`terms`** (regex on OSM `name` / `description` /
-`operator`); most others use **`tags`**, optionally plus **`terms`**.
+**`kids_activities`** matches mainly via **`terms`** (literal, case-insensitive text in OSM `name` /
+`alt_name` / `description` / `operator`); most others use **`tags`**, optionally plus **`terms`**.
 
 ---
 
@@ -279,7 +288,7 @@ tags:                       # any tag line can match
       key: cuisine
       value: pizza
 
-terms:                      # regex selectors (per country + EN)
+terms:                      # literal text (per country + EN), case-insensitive
   DE: ["Museum", "Schloss"]
   FR: ["musée", "château"]
   ES: ["museo", "castillo"]
@@ -289,6 +298,8 @@ terms:                      # regex selectors (per country + EN)
 Need non-empty **`tags`** or **`terms`** for the current country plus **`EN`** (else query build
 fails). **`defaults`** keys are overridable on the CLI.
 
+Terms match substrings; regex characters such as `.`, `*`, and `[` are treated literally.
+
 ---
 
 ## How It Works
@@ -297,8 +308,27 @@ fails). **`defaults`** keys are overridable on the CLI.
 GPX `<trk>` + stopover `<wpt>`.
 
 **POI enrichment:** sample every `sample_km` → reverse-geocode country every `country_sample_km` →
-Overpass per batch (`tags` = typed selectors; `terms` = regex on name/description/operator within
-`max_km`) → dedupe by OSM id → `<wpt>` only. Mirrors rotate; retries on failure.
+Overpass per batch (`tags` = typed selectors; `terms` = literal text in
+name/alt_name/description/operator within `max_km`) → dedupe by **OSM type + ID** → `<wpt>` only.
+Repeated results for the same OSM object are emitted once. Distinct objects at the same coordinates,
+including a node and a way with the same numeric ID, remain separate. Each POI includes a link to its
+OSM object, which also preserves its identity during checkpoint recovery. Anonymous programmatic
+results without OSM identity retain the rounded-coordinate fallback. Mirrors rotate; retries on failure.
+
+### Recovery and limitations
+
+- Interrupted batch searches keep a partial GPX and an `.enrich-checkpoint.json` sidecar. Resume
+  requires the same input, profile, settings, and country grouping. Checkpoint version 2 retains OSM
+  identity; older checkpoints are refused because their skipped batches may have lost distinct POIs.
+  Preserve the partial GPX and start with a new output path, or remove the sidecar when deliberately
+  restarting from scratch. Previously rounded coordinates cannot be reconstructed.
+- Android resume state is retained in memory; process death does not restore it automatically.
+  Cancellation is cooperative and may wait for a blocking network call or retry to finish.
+- POI enrichment reads GPX 1.1 tracks. The gpxpy-backed Maps and Split commands can also read GPX 1.0.
+  Sampling and vertex filtering have the coverage limits described above; detour comparisons use local
+  planar geometry and remain approximate for unusually long or polar segments.
+- GPX files, routes, and diagnostic logs can reveal locations. Redact them before sharing, especially
+  when verbose service errors are enabled.
 
 ---
 
@@ -318,6 +348,13 @@ no bulk scraping; OSRM demo — personal/non-commercial; use **`OSRM_BASE_URL`**
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Issues:
 [GitHub](https://github.com/devmarkusb/gpx-poi-enricher/issues).
+
+Android device regressions run with `./gradlew connectedAuditAndroidTest` from `android/` and a
+connected emulator/device (API 29+). The separate `.audit` application uses real Chaquopy, ViewModels,
+and MediaStore with mocked service responses; Internet permission and billing/ads startup are disabled.
+Coverage currently includes interrupted resume, work ownership, queued cancellation, and storage
+overwrites on one arm64 Android 17 emulator. Actual screen rotation, SAF picker grants and provider
+failures, process death, billing/consent flows, and older Android versions still need device coverage.
 
 ---
 

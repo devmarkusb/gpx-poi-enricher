@@ -359,15 +359,34 @@ def test_extract_candidates_result_has_required_keys(sample_track_points):
         assert key in candidate, f"Missing key '{key}' in candidate dict"
 
 
-def test_extract_candidates_deduplication(sample_track_points):
-    """extract_candidates must not return duplicate coordinates (same lat/lon rounded to 5 dp)."""
+def test_extract_candidates_preserves_distinct_osm_elements_at_same_coordinates(
+    sample_track_points,
+):
+    """OSM type and ID identify POIs, including colocated objects."""
     profile = _make_profile()
-    # Two nodes with essentially the same coordinate.
     node_a = _make_node(node_id=1, lat=48.14000, lon=11.58000)
     node_b = _make_node(node_id=2, lat=48.14000, lon=11.58000)
-    data = {"elements": [node_a, node_b]}
+    way = _make_way(way_id=1, center_lat=48.14, center_lon=11.58)
+    relation = {**way, "type": "relation"}
+    data = {"elements": [node_a, node_b, way, relation]}
     result = extract_candidates(data, sample_track_points, max_km=10.0, profile=profile)
-    assert len(result) == 1, "Duplicate coordinates should be deduplicated"
+    assert {(item["osm_type"], item["osm_id"]) for item in result} == {
+        ("node", 1),
+        ("node", 2),
+        ("way", 1),
+        ("relation", 1),
+    }
+
+
+def test_extract_candidates_deduplicates_same_osm_identity(sample_track_points):
+    profile = _make_profile()
+    first = _make_node(node_id=1, lat=48.14, lon=11.58)
+    later = {**first, "lat": 48.141}
+    result = extract_candidates(
+        {"elements": [first, later]}, sample_track_points, max_km=10.0, profile=profile
+    )
+    assert len(result) == 1
+    assert result[0]["lat"] == first["lat"]
 
 
 def test_extract_candidates_handles_missing_lat_lon(sample_track_points):

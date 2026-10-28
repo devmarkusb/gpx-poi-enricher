@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 import requests
 
 from .gpx_utils import min_distance_to_track_km
+from .poi_identity import CandidateKey, candidate_key, osm_identity
 
 if TYPE_CHECKING:
     from .profiles import SearchProfile
@@ -340,9 +341,10 @@ def extract_candidates(
 ) -> list[dict[str, Any]]:
     """Filter Overpass results to POIs within *max_km* of the track, deduplicated.
 
-    Returns a list of dicts with keys: lat, lon, name, kind, distance_km, tags.
+    Returns dicts with lat, lon, name, kind, distance_km, tags, and OSM type+ID
+    when available. Distinct OSM objects at the same coordinates are retained.
     """
-    dedup: OrderedDict[tuple[float, float], dict[str, Any]] = OrderedDict()
+    dedup: OrderedDict[CandidateKey, dict[str, Any]] = OrderedDict()
 
     for el in data.get("elements", []):
         lat, lon = element_latlon(el)
@@ -357,15 +359,17 @@ def extract_candidates(
         if d > max_km:
             continue
 
-        key = (round(lat, 5), round(lon, 5))
-        if key not in dedup:
-            dedup[key] = {
-                "lat": lat,
-                "lon": lon,
-                "name": _choose_name(tags, profile),
-                "kind": _choose_kind(tags, profile),
-                "distance_km": d,
-                "tags": tags,
-            }
+        candidate = {
+            "lat": lat,
+            "lon": lon,
+            "name": _choose_name(tags, profile),
+            "kind": _choose_kind(tags, profile),
+            "distance_km": d,
+            "tags": tags,
+        }
+        identity = osm_identity(el.get("type"), el.get("id"))
+        if identity is not None:
+            candidate.update(osm_type=identity[0], osm_id=identity[1])
+        dedup.setdefault(candidate_key(candidate), candidate)
 
     return list(dedup.values())

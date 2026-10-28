@@ -29,7 +29,7 @@ def test_write_read_and_clear_checkpoint(tmp_path):
     assert last == 3
     assert total == 10
     data = json.loads(checkpoint_path(out).read_text(encoding="utf-8"))
-    assert data["version"] == 1
+    assert data["version"] == 2  # GPX snapshots now retain OSM type+ID.
     clear_checkpoint(out)
     assert not has_checkpoint(out)
 

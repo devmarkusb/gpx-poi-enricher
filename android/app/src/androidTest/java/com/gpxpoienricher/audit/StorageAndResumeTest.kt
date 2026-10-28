@@ -78,6 +78,7 @@ class StorageAndResumeTest {
                 interrupt_after_first = False
                 allow_resume = False
                 block_queries = False
+                colocated_pois = False
                 entered_query = threading.Event()
                 release_query = threading.Event()
                 def query(*args, **kwargs):
@@ -91,8 +92,13 @@ class StorageAndResumeTest {
                         raise RuntimeError('Offline test interruption')
                     if allow_resume:
                         return {'elements': []}
-                    return {'elements': [{'type': 'node', 'id': 7, 'lat': 0.001, 'lon': 0.0,
-                                          'tags': {'name': 'Device POI'}}]}
+                    elements = [{'type': 'node', 'id': 7, 'lat': 0.001, 'lon': 0.0,
+                                 'tags': {'name': 'Device POI'}}]
+                    if colocated_pois:
+                        elements.append({'type': 'way', 'id': 7,
+                                         'center': {'lat': 0.001, 'lon': 0.0},
+                                         'tags': {'name': 'Device Way'}})
+                    return {'elements': elements}
                 patches = [
                     patch.object(engine, 'detect_country_segments', lambda pts, *a, **k: {'EN': pts}),
                     patch.object(engine, 'query_overpass', query),
@@ -120,7 +126,7 @@ class StorageAndResumeTest {
 
     @Test
     fun restoringSelectionsPreservesResumeAndUsesCopiedInput() {
-        executePython("interrupt_after_first = True")
+        executePython("interrupt_after_first = True; colocated_pois = True")
         val source = document("source", trackGpx())
         val previousOutput = "previous output ".repeat(100)
         val output = document("output", previousOutput)
@@ -147,8 +153,11 @@ class StorageAndResumeTest {
         val factory = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
         val root = factory.newDocumentBuilder().parse(ByteArrayInputStream(bytes))
         assertEquals(0, root.getElementsByTagNameNS(gpxNamespace, "trk").length)
-        assertEquals(1, root.getElementsByTagNameNS(gpxNamespace, "wpt").length)
+        assertEquals(2, root.getElementsByTagNameNS(gpxNamespace, "wpt").length)
         assertEquals("Device POI", root.getElementsByTagNameNS(gpxNamespace, "name").item(0).textContent)
+        val links = root.getElementsByTagNameNS(gpxNamespace, "link")
+        assertEquals(setOf("https://www.openstreetmap.org/node/7", "https://www.openstreetmap.org/way/7"),
+            (0 until links.length).map { links.item(it).attributes.getNamedItem("href").nodeValue }.toSet())
         assertFalse(GpxApp.gpxWorkDir().listFiles().orEmpty().any { profileId in it.name })
     }
 

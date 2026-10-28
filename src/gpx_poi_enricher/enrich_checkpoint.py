@@ -6,7 +6,9 @@ import json
 import pathlib
 
 CHECKPOINT_EXT = ".enrich-checkpoint.json"
-_VERSION = 1
+# Version 1 snapshots discarded OSM identity and could collapse distinct POIs.
+# Their skipped batches cannot be recovered safely under type+ID deduplication.
+_VERSION = 2
 
 
 def checkpoint_path(output_gpx: str | pathlib.Path) -> pathlib.Path:

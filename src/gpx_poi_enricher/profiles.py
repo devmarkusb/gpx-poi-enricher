@@ -194,6 +194,9 @@ def _dir_source_label(
     dirs: list[pathlib.Path],
     explicit_root: pathlib.Path | None,
 ) -> str:
+    env = os.environ.get("GPX_POI_PROFILES_DIR")
+    if explicit_root is None and env and d.resolve() == pathlib.Path(env).resolve():
+        return "user"
     if len(dirs) == 1:
         return "profiles"
     if explicit_root is not None:
@@ -224,6 +227,14 @@ def user_profiles_write_dir(profiles_dir: pathlib.Path | None = None) -> pathlib
             u.mkdir(parents=True, exist_ok=True)
             return u
         root.mkdir(parents=True, exist_ok=True)
+        return root
+    env = os.environ.get("GPX_POI_PROFILES_DIR")
+    if env:
+        root = pathlib.Path(env).resolve()
+        if not root.is_dir():
+            raise FileNotFoundError(
+                f"GPX_POI_PROFILES_DIR must refer to an existing directory: {root}"
+            )
         return root
     d = default_user_profiles_dir()
     d.mkdir(parents=True, exist_ok=True)

@@ -152,3 +152,48 @@ def test_resume_preserves_a_poi_at_the_radius_boundary(monkeypatch, offline_enri
     items = enricher.enrich_gpx_file(source, output, resume=True, **kwargs)
     assert [item["name"] for item in items] == ["Boundary POI"]
     assert items[0]["lat"] == latitude
+
+
+def test_resume_preserves_osm_identity_for_colocated_pois(monkeypatch, offline_enrichment):
+    source, output, kwargs, response = offline_enrichment
+    node = response["elements"][0]
+    way = {
+        "type": "way",
+        "id": node["id"],
+        "center": {"lat": node["lat"], "lon": node["lon"]},
+        "tags": {"name": "Colocated way"},
+    }
+    _interrupt(monkeypatch, (source, output, kwargs, {"elements": [node, way]}))
+    relation = {**way, "type": "relation", "tags": {"name": "Colocated relation"}}
+    monkeypatch.setattr(
+        enricher, "query_overpass", lambda *_a, **_k: {"elements": [node, way, relation]}
+    )
+    items = enricher.enrich_gpx_file(source, output, resume=True, **kwargs)
+    assert len(items) == 3
+    assert {(item["osm_type"], item["osm_id"]) for item in items} == {
+        ("node", 7),
+        ("way", 7),
+        ("relation", 7),
+    }
+    links = ET.parse(output).getroot().findall(f"{{{GPX_NS}}}wpt/{{{GPX_NS}}}link")
+    assert {link.attrib["href"] for link in links} == {
+        f"https://www.openstreetmap.org/{kind}/7" for kind in ("node", "way", "relation")
+    }
+
+
+def test_resume_refuses_legacy_coordinate_deduplication_checkpoint(monkeypatch, offline_enrichment):
+    import json
+
+    from gpx_poi_enricher.enrich_checkpoint import checkpoint_path
+
+    _interrupt(monkeypatch, offline_enrichment)
+    source, output, kwargs, _ = offline_enrichment
+    sidecar = checkpoint_path(output)
+    data = json.loads(sidecar.read_text())
+    data["version"] = 1  # Old snapshots discarded OSM identities and possibly distinct POIs.
+    sidecar.write_text(json.dumps(data))
+    snapshot = output.read_bytes()
+    with pytest.raises(ValueError, match="Unsupported checkpoint version"):
+        enricher.enrich_gpx_file(source, output, resume=True, **kwargs)
+    assert output.read_bytes() == snapshot
+    assert has_checkpoint(output)

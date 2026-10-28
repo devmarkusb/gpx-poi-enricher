@@ -462,3 +462,67 @@ def test_saving_profile_overrides_existing_alias_and_delete_removes_it(tmp_path)
     assert load_profile("museum", tmp_path).description == "new"
     assert delete_user_profile("museum", tmp_path)
     assert load_all_profiles(tmp_path) == {}
+
+
+def test_environment_profile_directory_is_the_writable_store(monkeypatch, tmp_path):
+    from gpx_poi_enricher import profiles
+
+    custom = tmp_path / "custom"
+    custom.mkdir()
+    normal = tmp_path / "normal-user"
+    monkeypatch.setenv("GPX_POI_PROFILES_DIR", str(custom))
+    monkeypatch.setattr(profiles, "default_user_profiles_dir", lambda: normal)
+    profile = profile_from_yaml_text(yaml.safe_dump(_minimal_profile_dict("custom", "Custom")))
+    saved = save_profile(profile)
+    assert saved.parent == custom
+    assert load_profile("custom").description == "Custom"
+    assert profiles.load_all_profiles_with_sources()["custom"][1] == "user"
+    assert profiles.delete_user_profile("custom")
+    assert load_all_profiles() == {}
+    assert not normal.exists()
+
+
+def test_environment_profile_directory_write_failure_does_not_fall_back(monkeypatch, tmp_path):
+    from gpx_poi_enricher import profiles
+
+    custom = tmp_path / "custom"
+    custom.mkdir()
+    normal = tmp_path / "normal-user"
+    monkeypatch.setenv("GPX_POI_PROFILES_DIR", str(custom))
+    monkeypatch.setattr(profiles, "default_user_profiles_dir", lambda: normal)
+    profile = profile_from_yaml_text(yaml.safe_dump(_minimal_profile_dict("custom", "Custom")))
+
+    def denied(*args, **kwargs):
+        assert kwargs["dir"] == custom
+        raise PermissionError("Profile directory is read-only")
+
+    monkeypatch.setattr(profiles.tempfile, "NamedTemporaryFile", denied)
+    with pytest.raises(PermissionError, match="read-only"):
+        save_profile(profile)
+    assert not normal.exists()
+
+
+def test_missing_environment_profile_directory_rejects_writes(monkeypatch, tmp_path):
+    from gpx_poi_enricher import profiles
+
+    custom = tmp_path / "missing"
+    normal = tmp_path / "normal-user"
+    monkeypatch.setenv("GPX_POI_PROFILES_DIR", str(custom))
+    monkeypatch.setattr(profiles, "default_user_profiles_dir", lambda: normal)
+    profile = profile_from_yaml_text(yaml.safe_dump(_minimal_profile_dict("custom", "Custom")))
+    with pytest.raises(FileNotFoundError, match="GPX_POI_PROFILES_DIR"):
+        save_profile(profile)
+    assert not normal.exists()
+
+
+def test_explicit_profile_store_overrides_environment(monkeypatch, tmp_path):
+    custom = tmp_path / "custom"
+    custom.mkdir()
+    explicit = tmp_path / "android-style"
+    (explicit / "builtin").mkdir(parents=True)
+    monkeypatch.setenv("GPX_POI_PROFILES_DIR", str(custom))
+    profile = profile_from_yaml_text(yaml.safe_dump(_minimal_profile_dict("custom", "Custom")))
+    saved = save_profile(profile, explicit)
+    assert saved.parent == explicit / "user"
+    assert load_profile("custom", explicit).description == "Custom"
+    assert list(custom.iterdir()) == []
