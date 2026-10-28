@@ -103,7 +103,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         val url = primaryUrl.trim()
-        if (url.isBlank()) { _snackbar.value = if (pointMode) "Enter a point or Maps place link" else "Enter a Google Maps URL"; return }
+        if (url.isBlank()) { _snackbar.value = if (pointMode) "Enter a place name, coordinates or Maps place link" else "Enter a Google Maps URL"; return }
         val maxKm = if (!pointMode || pointRadius.isBlank()) {
             null
         } else {

@@ -260,8 +260,8 @@ def easy_generate_point(
 ):
     """Enrich around *location* and write ``{name}-{profile_id}.gpx`` under *output_dir*.
 
-    ``{name}`` comes from the nearest named POI, else the nearest Nominatim place,
-    else the historic ``point-{hash}`` scheme. *max_km* overrides the profile radius.
+    ``{name}`` describes the starting point, with a coordinate-based hash fallback,
+    independent of search results. *max_km* overrides the profile radius.
     """
     kwargs = {}
     if max_km is not None:

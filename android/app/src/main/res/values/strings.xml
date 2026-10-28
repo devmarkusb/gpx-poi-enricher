@@ -11,8 +11,8 @@
 
     <!-- Labels -->
     <string name="label_input_gpx">Input GPX File (with track)</string>
-    <string name="label_point_input">Point or Google Maps link</string>
-    <string name="hint_point_input">LAT,LON or Maps link</string>
+    <string name="label_point_input">Place, coordinates or Google Maps link</string>
+    <string name="hint_point_input">Place name, LAT,LON or Maps link</string>
     <string name="mode_track_search">Track</string>
     <string name="mode_point_search">Point</string>
     <string name="label_output_gpx">Output GPX File</string>
@@ -33,7 +33,7 @@
     <string name="hint_easy_milestones">Track milestones (parts)</string>
     <string name="helper_easy_milestones">0 = off. N ≥ 2 writes a separate waypoint-only «stem»-milestones.gpx (1/N … N/N) per full route (not detour fragments). Track GPX files stay unchanged.</string>
     <string name="hint_point_radius">Radius (km)</string>
-    <string name="helper_point_radius">Blank = use the radius from the selected profile. The POI GPX is named after the nearest named POI or place.</string>
+    <string name="helper_point_radius">Blank = use the radius from the selected profile. The GPX base name describes the starting point and stays the same across profiles and radii.</string>
     <string name="btn_generate">Generate GPX</string>
     <string name="btn_resume_enrichment">Resume enrichment</string>
     <string name="label_generated_files">Generated files</string>

@@ -426,7 +426,7 @@ def enrich_point_file(
     profiles_dir: pathlib.Path | None = None,
     **kwargs: Any,
 ) -> list[dict[str, Any]]:
-    """Search around coordinates or a Google Maps link and write a waypoints-only GPX."""
+    """Search around a place name, coordinates, or Maps link and write a POI GPX."""
     profile = load_profile(profile_id, profiles_dir)
     point = resolve_point_input(location, session=kwargs.get("http_session"))
     items = enrich_point(point, profile, **kwargs)
@@ -445,10 +445,9 @@ def enrich_point_file_named(
 ) -> tuple[str, list[dict[str, Any]]]:
     """Enrich around a point and write ``{name}-{profile_id}.gpx`` under *output_dir*.
 
-    ``{name}`` is the nearest reasonable named thing: the closest POI with a real
-    OSM name, otherwise the nearest named place from one Nominatim reverse lookup,
-    otherwise ``point-{sha256[:8]}`` (the historic naming scheme, used whenever no
-    usable name is found).
+    ``{name}`` comes from a Nominatim reverse lookup at the starting point, with a
+    coordinate-based ``point-{sha256[:8]}`` fallback. It is independent of the
+    selected profile, search radius, and returned POIs.
 
     Returns ``(output_path, items)``.
     """
@@ -458,7 +457,7 @@ def enrich_point_file_named(
     try:
         point = resolve_point_input(location, session=session)
         items = enrich_point(point, profile, **{**kwargs, "http_session": session})
-        stem, source = point_output_stem(location, items, point=point, session=session)
+        stem, source = point_output_stem(point, session=session)
         out_path = pathlib.Path(output_dir) / f"{stem}-{profile_id}.gpx"
         outp = _write_point_gpx(items, profile, out_path)
     finally:
@@ -466,10 +465,8 @@ def enrich_point_file_named(
             session.close()
 
     print(f"\nAdding {len(items)} waypoints.", file=sys.stderr)
-    if source == "poi":
-        print(f"Named after the nearest POI: {stem}", file=sys.stderr)
-    elif source == "place":
-        print(f"Named after the nearest place: {stem}", file=sys.stderr)
+    if source == "place":
+        print(f"Named after the starting point: {stem}", file=sys.stderr)
     print(f"Wrote: {outp}", file=sys.stderr)
     return str(outp), items
 

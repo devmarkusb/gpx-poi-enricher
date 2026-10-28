@@ -7,6 +7,10 @@ import pathlib
 import threading
 
 import pytest
+import responses
+
+from gpx_poi_enricher.geocoding import NOMINATIM_SEARCH_URL, NOMINATIM_URL
+from gpx_poi_enricher.overpass import OVERPASS_URLS
 
 
 @pytest.fixture
@@ -49,6 +53,40 @@ def test_android_easy_point_radius_override(bridge, monkeypatch, tmp_path):
     )
     assert result["poi_count"] == 0
     assert calls[0]["max_km"] == 5.0
+
+
+@responses.activate
+def test_android_easy_named_point_generates_pois(bridge, monkeypatch, tmp_path, profiles_dir):
+    monkeypatch.setattr("gpx_poi_enricher.enricher.time.sleep", lambda *_: None)
+    responses.get(NOMINATIM_SEARCH_URL, json=[{"lat": "1", "lon": "2"}])
+    responses.get(NOMINATIM_URL, json={"name": "Starting Point"})
+    for url in OVERPASS_URLS:
+        responses.post(
+            url,
+            json={
+                "elements": [
+                    {
+                        "type": "node",
+                        "id": 1,
+                        "lat": 1.001,
+                        "lon": 2,
+                        "tags": {"name": "Nearby Aquarium", "tourism": "aquarium"},
+                    }
+                ]
+            },
+        )
+
+    result = json.loads(
+        bridge.easy_generate_point(
+            "Starting Point", "aquarium", profiles_dir, tmp_path, _SilentLog()
+        )
+    )
+
+    assert result["track_path"] == ""
+    assert result["poi_count"] == 1
+    output = pathlib.Path(result["poi_path"])
+    assert output == tmp_path / "Starting Point-aquarium.gpx"
+    assert "Nearby Aquarium" in output.read_text(encoding="utf-8")
 
 
 def test_android_easy_point_cancelled(bridge, monkeypatch, tmp_path):

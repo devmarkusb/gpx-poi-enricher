@@ -42,8 +42,8 @@ def _build_parser() -> argparse.ArgumentParser:
     ap.add_argument("output_gpx", nargs="?", help="Output GPX file (waypoints only)")
     ap.add_argument(
         "--point",
-        metavar="LAT,LON|MAPS_URL",
-        help="Search around coordinates or a Google Maps place link",
+        metavar="PLACE|LAT,LON|MAPS_URL",
+        help="Search around a place name, coordinates, or a Google Maps place link",
     )
     ap.add_argument(
         "--output",

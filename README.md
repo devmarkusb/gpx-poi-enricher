@@ -115,10 +115,13 @@ From a clone: `uv run gpx-poi-enricher-gui`.
 `uv run python scripts/build_macos_app.py` → `dist/GPX POI Enricher.app`. Drag to Applications or
 Dock. Rebuild after upgrading the package in `.venv`.
 
-**Easy** — choose Route for Maps directions → GPX(s) + POIs, or Point for coordinates/a Maps
-place link → POI-only GPX. Point mode has its own radius field (blank/0 = the profile radius) and
-names its GPX after the nearest named POI, else the nearest place from one Nominatim reverse
-lookup, else `point-{hash}` as before. Route mode also supports alternates, detours, and
+**Easy** — choose Route for Maps directions → GPX(s) + POIs, or Point for a place name,
+coordinates, or a Maps place link → POI-only GPX. Point mode has its own radius field
+(blank/0 = the profile radius). Its GPX base name comes from a Nominatim lookup at the starting
+point, with a coordinate-based `point-{hash}` fallback. Changing the profile or radius keeps
+the same base name; the `-{profile}.gpx` suffix distinguishes searches. Named POIs and Maps
+links without coordinates are resolved through Nominatim; include a city or address to
+identify the intended place. Route mode also supports alternates, detours, and
 milestones. Progress log + file list; cancel after the current batch.
 
 **Expert** — POI Enricher, Split Waypoints, Maps → GPX, and **Profiles** tabs (same CLIs; Maps tab
@@ -174,8 +177,8 @@ gpx-split-waypoints route.gpx route-split.gpx 5   # 5 milestones, 1/5 through 5/
 
 ## Command: gpx-poi-enricher
 
-Track GPX or point in → waypoints-only POI GPX out. A point may be `LAT,LON` or a Google Maps
-place link. Run `gpx-poi-enricher --help` for all flags.
+Track GPX or point in → waypoints-only POI GPX out. A point may be a place name or address,
+`LAT,LON`, or a Google Maps place link. Run `gpx-poi-enricher --help` for all flags.
 
 - `--profile` — required unless `--list-profiles`
 - `--max-km` — max distance from track, or radius around a point
@@ -184,7 +187,7 @@ place link. Run `gpx-poi-enricher --help` for all flags.
 - `--batch-size` — sample points per Overpass request
 - `--country-sample-km` — spacing between track country lookups (default **40**; **500** with
   `--quick`)
-- `--point` — `LAT,LON` or a Google Maps place link; pair with `--output`
+- `--point` — place name, `LAT,LON`, or a Google Maps place link; pair with `--output`
 - `--progress-interval` — stderr progress in seconds (`0` off; default `5`)
 - `--verbose` — verbose Overpass error bodies (track searches only)
 - `--list-profiles` — list profiles and defaults, then exit

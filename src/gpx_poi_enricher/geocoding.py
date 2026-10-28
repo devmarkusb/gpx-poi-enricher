@@ -1,7 +1,8 @@
-"""Nominatim reverse-geocoding to detect the country of route segments."""
+"""Nominatim place lookup and reverse geocoding for points and route segments."""
 
 from __future__ import annotations
 
+import math
 import sys
 import time
 from collections import OrderedDict
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     pass
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
+NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
 USER_AGENT = "gpx-poi-enricher/0.1 (https://github.com/devmarkusb/gpx-poi-enricher)"
 
 # Address keys most likely to name the place a coordinate belongs to, most local first.
@@ -36,6 +38,33 @@ _PLACE_NAME_KEYS = (
     "state",
     "country",
 )
+
+
+def geocode_place(name: str, session: requests.Session) -> tuple[float, float]:
+    """Resolve a POI name or address to coordinates through Nominatim."""
+    response = session.get(
+        NOMINATIM_SEARCH_URL,
+        params={"q": name, "format": "jsonv2", "limit": 1},
+        headers={"User-Agent": USER_AGENT},
+        timeout=30,
+    )
+    response.raise_for_status()
+    results = response.json()
+    # Leave room for a following country or place lookup in the enrichment pipeline.
+    time.sleep(1.1)
+    if results:
+        try:
+            lat, lon = float(results[0]["lat"]), float(results[0]["lon"])
+            if (
+                math.isfinite(lat)
+                and math.isfinite(lon)
+                and -90 <= lat <= 90
+                and -180 <= lon <= 180
+            ):
+                return lat, lon
+        except (KeyError, TypeError, ValueError):
+            pass
+    raise ValueError("Could not find that place. Add its city or address, or enter LAT,LON.")
 
 
 def reverse_country_code(

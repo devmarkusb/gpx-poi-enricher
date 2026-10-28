@@ -791,7 +791,7 @@ class _EasyTab(QWidget):
         self._source_combo.addItem("Point / Maps link", "point")
         root.addWidget(self._source_combo)
         self._point_edit = QLineEdit()
-        self._point_edit.setPlaceholderText("LAT,LON or Google Maps place link")
+        self._point_edit.setPlaceholderText("Place name, LAT,LON, or Google Maps place link")
         self._point_edit.hide()
         root.addWidget(self._point_edit)
         url_box = self._url_box = QGroupBox("Google Maps directions URLs")
@@ -942,7 +942,7 @@ class _EasyTab(QWidget):
                 QMessageBox.warning(
                     self,
                     "Input required",
-                    "Enter a point or Maps place link."
+                    "Enter a place name, coordinates, or Maps place link."
                     if point
                     else "Please enter a primary Google Maps directions URL.",
                 )
@@ -1133,7 +1133,7 @@ class _EnricherTab(QWidget):
         self._source_combo.addItem("Point / Maps link", "point")
         input_w, self._input_edit = _file_row("Open Input GPX", "route.gpx")
         self._point_edit = QLineEdit()
-        self._point_edit.setPlaceholderText("LAT,LON or Google Maps link")
+        self._point_edit.setPlaceholderText("Place name, LAT,LON, or Google Maps link")
         self._source_label = QLabel("Input GPX:")
         self._source_stack = QStackedWidget()
         self._source_stack.addWidget(input_w)

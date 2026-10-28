@@ -1,12 +1,14 @@
-"""Resolve a coordinate or Google Maps place link to a latitude/longitude pair."""
+"""Resolve a place name, coordinate, or Google Maps link to a latitude/longitude pair."""
 
 from __future__ import annotations
 
 import math
 import re
-from urllib.parse import parse_qs, unquote, urljoin, urlsplit
+from urllib.parse import parse_qs, unquote, unquote_plus, urljoin, urlsplit
 
 import requests
+
+from .geocoding import geocode_place
 
 _PAIR_RE = re.compile(r"^\s*(?:geo:)?\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$")
 _PLACE_COORDS_RE = re.compile(r"!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)", re.IGNORECASE)
@@ -108,15 +110,32 @@ def _coordinates_from_maps_url(url: str) -> tuple[float, float] | None:
     return None
 
 
+def _place_name_from_maps_url(url: str) -> str:
+    parsed = urlsplit(url)
+    query = parse_qs(parsed.query)
+    for key in ("query", "q"):
+        for value in query.get(key, []):
+            name = value.strip()
+            if name and not _PAIR_RE.fullmatch(name) and not name.startswith("place_id:"):
+                return name
+    match = re.search(r"/maps/(?:place|search)/([^/]+)", parsed.path)
+    if match:
+        name = unquote_plus(match.group(1)).strip()
+        if name and not _PAIR_RE.fullmatch(name):
+            return name
+    return ""
+
+
 def resolve_point_input(
     value: str,
     *,
     session: requests.Session | None = None,
 ) -> tuple[float, float]:
-    """Resolve ``LAT,LON`` or a Google Maps place URL to coordinates.
+    """Resolve a place name, ``LAT,LON``, or Google Maps URL to coordinates.
 
     For Maps place URLs, the place pin is preferred over the map viewport center.
-    Short ``maps.app.goo.gl`` links are expanded through HTTPS redirects.
+    Short ``maps.app.goo.gl`` links are expanded through HTTPS redirects. Names
+    and Maps links without coordinates use a Nominatim place lookup.
     """
     if _PAIR_RE.fullmatch(value):
         direct = _coordinates(value)
@@ -125,19 +144,25 @@ def resolve_point_input(
         raise ValueError("Coordinates must be within latitude -90..90 and longitude -180..180.")
 
     candidate = value.strip()
+    if not candidate:
+        raise ValueError("Enter a place name, coordinates as LAT,LON, or a Google Maps link.")
+    if session is None:
+        with requests.Session() as owned_session:
+            return resolve_point_input(candidate, session=owned_session)
     if "://" not in candidate and not candidate.lower().startswith("geo:"):
+        if not candidate.lower().startswith(("www.", "maps.", "google.", "goo.gl/")):
+            return geocode_place(candidate, session)
         candidate = f"https://{candidate}"
     host, _ = _validate_maps_url(candidate)
     if host in {"maps.app.goo.gl", "goo.gl"}:
-        if session is None:
-            with requests.Session() as owned_session:
-                candidate = _expand_short_link(candidate, owned_session)
-        else:
-            candidate = _expand_short_link(candidate, session)
+        candidate = _expand_short_link(candidate, session)
 
     coords = _coordinates_from_maps_url(candidate)
     if coords:
         return coords
+    name = _place_name_from_maps_url(candidate)
+    if name:
+        return geocode_place(name, session)
     raise ValueError(
-        "Could not find coordinates in that Maps link. Enter LAT,LON or use a place link with a map pin."
+        "Could not find a point in that Maps link. Enter the place name or LAT,LON instead."
     )

@@ -1,4 +1,4 @@
-"""Point-mode output naming: nearest named POI → Nominatim place → point-{hash}."""
+"""Point-mode filenames describe the starting point, independent of POI results."""
 
 from __future__ import annotations
 
@@ -6,12 +6,13 @@ import hashlib
 import pathlib
 from unittest.mock import patch
 
+import pytest
 import requests
 import responses as resp_lib
 
 from gpx_poi_enricher import enricher
 from gpx_poi_enricher.geocoding import NOMINATIM_URL
-from gpx_poi_enricher.naming import clean_label, nearest_poi_label, point_output_stem
+from gpx_poi_enricher.naming import clean_label, point_output_stem
 from gpx_poi_enricher.overpass import OVERPASS_URLS
 
 
@@ -27,30 +28,12 @@ def _poi(name: str, distance_km: float = 0.1, tags: dict | None = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# nearest_poi_label
+# clean_label
 # ---------------------------------------------------------------------------
 
 
-def test_nearest_poi_label_returns_closest_named_poi():
-    items = [_poi("Zoo Entrance", 0.1), _poi("Aquarium Berlin", 0.5)]
-    assert nearest_poi_label(items) == "Zoo Entrance"
-
-
-def test_nearest_poi_label_skips_candidates_without_an_osm_name():
-    # No name-like OSM tag → the enricher filled in the profile description.
-    fallback = _poi("Aquarium", 0.1, tags={"tourism": "aquarium"})
-    items = [fallback, _poi("Aquarium Berlin", 0.5)]
-    assert nearest_poi_label(items) == "Aquarium Berlin"
-
-
-def test_nearest_poi_label_ignores_placeholders_and_empty_input():
-    assert nearest_poi_label([]) == ""
-    assert nearest_poi_label(None) == ""
-    assert nearest_poi_label([_poi("Unnamed", tags={"name": "Unnamed"})]) == ""
-
-
-def test_nearest_poi_label_cuts_long_names():
-    label = nearest_poi_label([_poi("Zoologischer " * 10)])
+def test_clean_label_cuts_long_names():
+    label = clean_label("Zoologischer " * 10)
     assert 0 < len(label) <= 60
     assert not label.endswith(" ")
 
@@ -70,33 +53,37 @@ def test_clean_label_rejects_placeholders():
 # ---------------------------------------------------------------------------
 
 
-def test_point_output_stem_prefers_named_poi():
-    assert point_output_stem("1,2", [_poi("Aquarium Berlin")]) == ("Aquarium Berlin", "poi")
-
-
-def test_point_output_stem_hash_without_candidates_or_point():
-    stem, source = point_output_stem("1,2", [])
+def test_point_output_stem_hash_without_a_lookup_session():
+    stem, source = point_output_stem((1, 2))
     assert source == "hash"
-    assert stem == f"point-{hashlib.sha256(b'1,2').hexdigest()[:8]}"
+    assert stem == f"point-{hashlib.sha256(b'1.0000000,2.0000000').hexdigest()[:8]}"
 
 
 @resp_lib.activate
-def test_point_output_stem_falls_back_to_reverse_place_name():
+def test_point_output_stem_uses_starting_place_name():
     resp_lib.add(resp_lib.GET, NOMINATIM_URL, json={"name": "Zoologischer Garten"}, status=200)
-    stem, source = point_output_stem(
-        "1,2", [], point=(48.1351, 11.5820), session=requests.Session()
-    )
+    stem, source = point_output_stem((48.1351, 11.5820), session=requests.Session())
     assert (stem, source) == ("Zoologischer Garten", "place")
 
 
 @resp_lib.activate
 def test_point_output_stem_hash_when_reverse_lookup_fails():
     # Nothing registered under Nominatim → the failed lookup falls back to point-{hash}.
-    stem, source = point_output_stem(
-        "1,2", [], point=(48.1351, 11.5820), session=requests.Session()
-    )
+    stem, source = point_output_stem((1, 2), session=requests.Session())
     assert source == "hash"
-    assert stem == f"point-{hashlib.sha256(b'1,2').hexdigest()[:8]}"
+    assert stem == f"point-{hashlib.sha256(b'1.0000000,2.0000000').hexdigest()[:8]}"
+
+
+@resp_lib.activate
+def test_enrich_point_file_named_hash_is_tied_to_resolved_coordinates(
+    monkeypatch, tmp_path, profiles_dir
+):
+    monkeypatch.setattr(enricher, "enrich_point", lambda *_a, **_k: [])
+    paths = [
+        enricher.enrich_point_file_named(location, tmp_path, "aquarium", profiles_dir)[0]
+        for location in ("1,2", " geo:1.000, 2.000 ", "https://www.google.com/maps?q=1,2")
+    ]
+    assert paths[0] == paths[1] == paths[2]
 
 
 # ---------------------------------------------------------------------------
@@ -120,14 +107,63 @@ def test_enrich_point_file_writes_to_explicit_path(monkeypatch, tmp_path, profil
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("lookup_status", [200, 503])
+@resp_lib.activate
+def test_enrich_point_file_named_keeps_point_name_across_profiles(
+    lookup_status, monkeypatch, tmp_path, profiles_dir
+):
+    resp_lib.add(resp_lib.GET, NOMINATIM_URL, json={"name": "Starting Point"}, status=lookup_status)
+    results = iter([[_poi("Aquarium Berlin")], [_poi("Campground")], []])
+    monkeypatch.setattr(enricher, "enrich_point", lambda *_a, **_k: next(results))
+
+    paths = [
+        pathlib.Path(enricher.enrich_point_file_named("1,2", tmp_path, profile, profiles_dir)[0])
+        for profile in ("aquarium", "camping", "aquarium")
+    ]
+
+    stem = (
+        "Starting Point"
+        if lookup_status == 200
+        else f"point-{hashlib.sha256(b'1.0000000,2.0000000').hexdigest()[:8]}"
+    )
+    assert paths == [tmp_path / f"{stem}-{p}.gpx" for p in ("aquarium", "camping", "aquarium")]
+
+
+@pytest.mark.parametrize(
+    "location", ["Aquarium Berlin", "https://www.google.com/maps/place/Aquarium+Berlin/"]
+)
+@resp_lib.activate
+def test_enrich_point_file_accepts_named_poi(location, monkeypatch, tmp_path, profiles_dir):
+    monkeypatch.setattr("gpx_poi_enricher.geocoding.time.sleep", lambda *_: None)
+    resp_lib.add(
+        resp_lib.GET,
+        "https://nominatim.openstreetmap.org/search",
+        json=[{"lat": "1", "lon": "2", "display_name": "Aquarium Berlin"}],
+        status=200,
+    )
+    points = []
+
+    def search(point, profile, **kwargs):
+        points.append(point)
+        return []
+
+    monkeypatch.setattr(enricher, "enrich_point", search)
+    output = tmp_path / "pois.gpx"
+    enricher.enrich_point_file(location, output, "aquarium", profiles_dir)
+
+    assert points == [(1.0, 2.0)]
+    assert output.is_file()
+
+
 @resp_lib.activate
 def test_enrich_point_file_named_writes_named_gpx(monkeypatch, tmp_path, profiles_dir):
+    resp_lib.add(resp_lib.GET, NOMINATIM_URL, json={"name": "Starting Point"}, status=200)
     items = [_poi("Aquarium Berlin", 0.2)]
     monkeypatch.setattr(enricher, "enrich_point", lambda point, profile, **kwargs: items)
     path, written = enricher.enrich_point_file_named(
         "48.1351,11.5820", tmp_path, "aquarium", profiles_dir
     )
-    expected = tmp_path / "Aquarium Berlin-aquarium.gpx"
+    expected = tmp_path / "Starting Point-aquarium.gpx"
     assert pathlib.Path(path) == expected
     assert written is items
     assert expected.is_file()
@@ -162,7 +198,8 @@ def test_enrich_point_file_named_forwards_radius_override(monkeypatch, tmp_path,
 
 @resp_lib.activate
 def test_enrich_point_file_named_end_to_end(tmp_path, profiles_dir):
-    """Real pipeline (mocked HTTP): the nearest named Overpass hit names the GPX."""
+    """Real pipeline (mocked HTTP): the start point names the GPX, regardless of hits."""
+    resp_lib.add(resp_lib.GET, NOMINATIM_URL, json={"name": "Starting Point"}, status=200)
     for url in OVERPASS_URLS:
         resp_lib.add(
             resp_lib.POST,
@@ -185,6 +222,6 @@ def test_enrich_point_file_named_end_to_end(tmp_path, profiles_dir):
             "48.1351,11.5820", tmp_path, "aquarium", profiles_dir, progress_interval=0
         )
     out = pathlib.Path(path)
-    assert out == tmp_path / "Aquarium Berlin-aquarium.gpx"
+    assert out == tmp_path / "Starting Point-aquarium.gpx"
     assert [i["name"] for i in items] == ["Aquarium Berlin"]
     assert "<wpt" in out.read_text(encoding="utf-8")

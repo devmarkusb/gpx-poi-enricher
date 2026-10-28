@@ -1,8 +1,7 @@
 """Label and filename helpers shared by route and point output naming.
 
 Route mode names files after its start/finish labels; point mode names them after
-the nearest reasonable named thing (nearest named POI → nearest Nominatim place →
-``point-{hash}``).
+the starting point's Nominatim place name, with a coordinate-based hash fallback.
 """
 
 from __future__ import annotations
@@ -13,7 +12,6 @@ import re
 import requests
 
 from .geocoding import reverse_place_name
-from .overpass import NAME_TAG_PRIORITY
 
 # Placeholder names OSM uses when no real name exists — useless as a filename.
 _PLACEHOLDER_NAMES = frozenset({"unnamed", "unknown", "nameless", "n/a", "none", "-"})
@@ -59,47 +57,27 @@ def clean_label(raw: str | None) -> str:
     return _trim_label(text)
 
 
-def nearest_poi_label(items: list[dict] | None) -> str:
-    """Return a short label for the nearest POI carrying a real OSM name.
-
-    *items* must be sorted by distance (as returned by the enricher). Candidates
-    whose ``name`` only falls back to the profile description (no name-like OSM
-    tag) are skipped so the label describes a place, not the search profile.
-    """
-    for item in items or []:
-        tags = item.get("tags") or {}
-        if not any(str(tags.get(key, "")).strip() for key in NAME_TAG_PRIORITY):
-            continue
-        label = clean_label(item.get("name"))
-        if label:
-            return label
-    return ""
-
-
 def point_output_stem(
-    location: str,
-    items: list[dict] | None,
+    point: tuple[float, float],
     *,
-    point: tuple[float, float] | None = None,
     session: requests.Session | None = None,
 ) -> tuple[str, str]:
     """Filename stem for a point-mode POI GPX: ``(stem, source)``.
 
-    Source order: ``"poi"`` (nearest named search result), ``"place"`` (one
-    Nominatim reverse lookup near *point*), ``"hash"`` (historic
-    ``point-{sha256[:8]}`` scheme — used when nothing reasonable is found).
+    Use one Nominatim reverse lookup at *point*, independent of search results.
+    If no usable place name is available, hash the coordinates at seven decimal
+    places so equivalent coordinate strings and Maps links share a fallback.
     """
-    label = nearest_poi_label(items)
-    source = "poi"
-    if not label and point is not None and session is not None:
+    label = ""
+    if session is not None:
         try:
             place = reverse_place_name(point[0], point[1], session)
         except requests.RequestException:
             place = ""
         label = clean_label(place)
-        source = "place"
 
     stem = safe_filename_component(label) if label else ""
     if stem:
-        return stem, source
-    return f"point-{hashlib.sha256(location.encode()).hexdigest()[:8]}", "hash"
+        return stem, "place"
+    coordinates = ",".join(f"{coordinate + 0.0:.7f}" for coordinate in point)
+    return f"point-{hashlib.sha256(coordinates.encode()).hexdigest()[:8]}", "hash"
