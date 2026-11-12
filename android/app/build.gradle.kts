@@ -100,7 +100,13 @@ android {
             matchingFallbacks += "debug"
         }
         release {
-            isMinifyEnabled = false
+            // R8 shrink + obfuscate — required by the Google Play "DEX code
+            // optimization" check (obfuscation was 0% with minify disabled).
+            // Safe with Chaquopy 16: it auto-keeps classes referenced from
+            // Python, and our Python side never imports Java classes. See
+            // proguard-rules.pro for the manual rules.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             ndk {
                 debugSymbolLevel = "SYMBOL_TABLE"
